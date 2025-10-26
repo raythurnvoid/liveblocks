@@ -4,19 +4,13 @@
   "description": "A server-side utility that lets you modify prosemirror and tiptap documents hosted in Liveblocks.",
   "license": "Apache-2.0",
   "type": "module",
-  "main": "./dist/index.cjs",
-  "types": "./dist/index.d.cts",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "module": "./dist/index.js",
-        "default": "./dist/index.cjs"
-      }
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
     }
   },
   "files": [
@@ -34,8 +28,8 @@
     "test:watch": "NODE_OPTIONS=\"--no-deprecation\" vitest"
   },
   "dependencies": {
-    "@liveblocks/core": "3.11.0",
-    "@liveblocks/node": "3.11.0",
+    "@liveblocks/core": "workspace:*",
+    "@liveblocks/node": "workspace:*",
     "yjs": "^13.6.20"
   },
   "peerDependencies": {
@@ -48,8 +42,8 @@
     "yjs": "^13.6.20"
   },
   "devDependencies": {
-    "@liveblocks/eslint-config": "*",
-    "@liveblocks/vitest-config": "*",
+    "@liveblocks/eslint-config": "workspace:*",
+    "@liveblocks/vitest-config": "workspace:*",
     "msw": "^2.10.4"
   },
   "bugs": {

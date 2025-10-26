@@ -34,8 +34,8 @@
     "test:watch": "NODE_OPTIONS=\"--no-deprecation\" vitest"
   },
   "dependencies": {
-    "@liveblocks/core": "3.11.0",
-    "@liveblocks/node": "3.11.0",
+    "@liveblocks/core": "workspace:*",
+    "@liveblocks/node": "workspace:*",
     "yjs": "^13.6.18"
   },
   "peerDependencies": {
@@ -46,8 +46,8 @@
     "lexical": "0.35.0"
   },
   "devDependencies": {
-    "@liveblocks/eslint-config": "*",
-    "@liveblocks/vitest-config": "*"
+    "@liveblocks/eslint-config": "workspace:*",
+    "@liveblocks/vitest-config": "workspace:*"
   },
   "bugs": {
     "url": "https://github.com/liveblocks/liveblocks/issues"

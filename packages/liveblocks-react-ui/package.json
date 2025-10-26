@@ -4,53 +4,33 @@
   "description": "A set of React pre-built components for the Liveblocks products. Liveblocks is the all-in-one toolkit to build collaborative products like Figma, Notion, and more.",
   "license": "Apache-2.0",
   "type": "module",
-  "main": "./dist/index.cjs",
-  "types": "./dist/index.d.cts",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "module": "./dist/index.js",
-        "default": "./dist/index.cjs"
-      }
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./primitives": {
-      "import": {
-        "types": "./dist/primitives/index.d.ts",
-        "default": "./dist/primitives/index.js"
-      },
-      "require": {
-        "types": "./dist/primitives/index.d.cts",
-        "module": "./dist/primitives/index.js",
-        "default": "./dist/primitives/index.cjs"
-      }
+      "types": "./src/primitives/index.ts",
+      "default": "./src/primitives/index.ts"
     },
     "./_private": {
-      "import": {
-        "types": "./dist/_private/index.d.ts",
-        "default": "./dist/_private/index.js"
-      },
-      "require": {
-        "types": "./dist/_private/index.d.cts",
-        "module": "./dist/_private/index.js",
-        "default": "./dist/_private/index.cjs"
-      }
+      "types": "./src/_private/index.ts",
+      "default": "./src/_private/index.ts"
     },
     "./styles.css": {
       "types": "./styles.css.d.cts",
-      "default": "./styles.css"
+      "default": "./src/styles/index.css"
     },
     "./styles/dark/media-query.css": {
       "types": "./styles/dark/media-query.css.d.cts",
-      "default": "./styles/dark/media-query.css"
+      "default": "./src/styles/dark/media-query.css"
     },
     "./styles/dark/attributes.css": {
       "types": "./styles/dark/attributes.css.d.cts",
-      "default": "./styles/dark/attributes.css"
+      "default": "./src/styles/dark/attributes.css"
     }
   },
   "files": [
@@ -76,9 +56,9 @@
   },
   "dependencies": {
     "@floating-ui/react-dom": "^2.1.2",
-    "@liveblocks/client": "3.11.0",
-    "@liveblocks/core": "3.11.0",
-    "@liveblocks/react": "3.11.0",
+    "@liveblocks/client": "workspace:*",
+    "@liveblocks/core": "workspace:*",
+    "@liveblocks/react": "workspace:*",
     "@radix-ui/react-dropdown-menu": "^2.1.2",
     "@radix-ui/react-popover": "^1.1.2",
     "@radix-ui/react-slot": "^1.1.0",
@@ -106,9 +86,9 @@
     }
   },
   "devDependencies": {
-    "@liveblocks/eslint-config": "*",
-    "@liveblocks/rollup-config": "*",
-    "@liveblocks/vitest-config": "*",
+    "@liveblocks/eslint-config": "workspace:*",
+    "@liveblocks/rollup-config": "workspace:*",
+    "@liveblocks/vitest-config": "workspace:*",
     "@testing-library/jest-dom": "^6.4.6",
     "@testing-library/react": "^13.1.1",
     "eslint-plugin-react": "^7.33.2",

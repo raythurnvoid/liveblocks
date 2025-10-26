@@ -4,41 +4,21 @@
   "description": "A set of React hooks and providers to use Liveblocks declaratively. Liveblocks is the all-in-one toolkit to build collaborative products like Figma, Notion, and more.",
   "license": "Apache-2.0",
   "type": "module",
-  "main": "./dist/index.cjs",
-  "types": "./dist/index.d.cts",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "module": "./dist/index.js",
-        "default": "./dist/index.cjs"
-      }
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./suspense": {
-      "import": {
-        "types": "./dist/suspense.d.ts",
-        "default": "./dist/suspense.js"
-      },
-      "require": {
-        "types": "./dist/suspense.d.cts",
-        "module": "./dist/suspense.js",
-        "default": "./dist/suspense.cjs"
-      }
+      "types": "./src/suspense.ts",
+      "default": "./src/suspense.ts"
     },
     "./_private": {
-      "import": {
-        "types": "./dist/_private.d.ts",
-        "default": "./dist/_private.js"
-      },
-      "require": {
-        "types": "./dist/_private.d.cts",
-        "module": "./dist/_private.js",
-        "default": "./dist/_private.cjs"
-      }
+      "types": "./src/_private.ts",
+      "default": "./src/_private.ts"
     }
   },
   "files": [
@@ -61,8 +41,8 @@
     "showdeps": "depcruise src --include-only '^src' --exclude='__tests__' --output-type dot | dot -T svg > /tmp/dependency-graph.svg && open /tmp/dependency-graph.svg"
   },
   "dependencies": {
-    "@liveblocks/client": "3.11.0",
-    "@liveblocks/core": "3.11.0"
+    "@liveblocks/client": "workspace:*",
+    "@liveblocks/core": "workspace:*"
   },
   "peerDependencies": {
     "@types/react": "*",
@@ -78,8 +58,8 @@
     }
   },
   "devDependencies": {
-    "@liveblocks/eslint-config": "*",
-    "@liveblocks/jest-config": "*",
+    "@liveblocks/eslint-config": "workspace:*",
+    "@liveblocks/jest-config": "workspace:*",
     "@liveblocks/query-parser": "^0.1.1",
     "@testing-library/jest-dom": "6.4.6",
     "@testing-library/react": "14.1.2",

@@ -34,15 +34,15 @@
     "test:watch": "NODE_OPTIONS=\"--no-deprecation\" vitest"
   },
   "dependencies": {
-    "@liveblocks/client": "3.11.0",
-    "@liveblocks/core": "3.11.0"
+    "@liveblocks/client": "workspace:*",
+    "@liveblocks/core": "workspace:*"
   },
   "peerDependencies": {
     "zustand": "^5.0.1"
   },
   "devDependencies": {
-    "@liveblocks/eslint-config": "*",
-    "@liveblocks/vitest-config": "*",
+    "@liveblocks/eslint-config": "workspace:*",
+    "@liveblocks/vitest-config": "workspace:*",
     "@testing-library/dom": "^10.4.0",
     "msw": "^2.10.4",
     "zustand": "^5.0.1"

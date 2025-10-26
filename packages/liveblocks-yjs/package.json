@@ -4,19 +4,13 @@
   "description": "Integrate your existing or new Yjs documents with Liveblocks.",
   "icense": "Apache-2.0",
   "type": "module",
-  "main": "./dist/index.cjs",
-  "types": "./dist/index.d.cts",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "module": "./dist/index.js",
-        "default": "./dist/index.cjs"
-      }
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
     }
   },
   "files": [
@@ -33,18 +27,19 @@
     "test:watch": "NODE_OPTIONS=\"--no-deprecation\" vitest"
   },
   "dependencies": {
-    "@liveblocks/client": "3.11.0",
-    "@liveblocks/core": "3.11.0",
+    "@liveblocks/client": "workspace:*",
+    "@liveblocks/core": "workspace:*",
     "@noble/hashes": "^1.8.0",
     "js-base64": "^3.7.7",
+    "lib0": "^0.2.114",
     "y-indexeddb": "^9.0.12"
   },
   "peerDependencies": {
     "yjs": "^13.6.1"
   },
   "devDependencies": {
-    "@liveblocks/eslint-config": "*",
-    "@liveblocks/vitest-config": "*",
+    "@liveblocks/eslint-config": "workspace:*",
+    "@liveblocks/vitest-config": "workspace:*",
     "@testing-library/jest-dom": "^6.4.6",
     "msw": "^2.7.3"
   },
