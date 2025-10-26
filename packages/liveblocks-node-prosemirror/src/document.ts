@@ -57,7 +57,7 @@ const getLiveblocksDocumentState = async (
   const ydoc = new Doc();
   applyUpdate(ydoc, update);
   const fragment = ydoc.getXmlFragment(field ?? "default");
-  const { mapping, doc } = initProseMirrorDoc(fragment, schema);
+  const { meta, mapping, doc } = initProseMirrorDoc(fragment, schema);
   const state = EditorState.create({
     schema,
     doc,
@@ -68,6 +68,7 @@ const getLiveblocksDocumentState = async (
     state,
     ydoc,
     mapping,
+    meta,
   };
 };
 
@@ -149,15 +150,12 @@ export async function withProsemirrorDocument<T>(
      * Provide a callback to modify documetns with prosemirrors's standard api.
      */
     async update(modifyFn) {
-      const { ydoc, fragment, state, mapping } = liveblocksState;
+      const { ydoc, fragment, state, meta } = liveblocksState;
       // Flush any pending updates (there really shouldn't be any?), this may be a NOOP
       const beforeVector = encodeStateVector(ydoc);
       const afterState = state.apply(modifyFn(state.doc, state.tr));
       ydoc.transact(() => {
-        updateYFragment(ydoc, fragment, afterState.doc, {
-          mapping,
-          isOMark: new Map(),
-        });
+        updateYFragment(ydoc, fragment, afterState.doc, meta);
       });
       // grab update after diffing
       const diffUpdate = encodeStateAsUpdate(ydoc, beforeVector);

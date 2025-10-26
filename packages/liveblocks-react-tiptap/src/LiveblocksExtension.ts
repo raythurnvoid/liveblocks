@@ -252,7 +252,7 @@ export const useLiveblocksExtension = (
 
   // Tiptap has options default as any, in tiptap2, we could use never, but now we must use any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return Extension.create<any, LiveblocksExtensionStorage>({
+  return Extension.create<never, LiveblocksExtensionStorage>({
     name: "liveblocksExtension",
 
     onCreate() {
@@ -399,6 +399,7 @@ export const useLiveblocksExtension = (
           },
           document: this.storage.doc,
           field: options.field,
+          provider: this.storage.provider,
         }),
         CollaborationCaret.configure({
           provider: this.storage.provider,

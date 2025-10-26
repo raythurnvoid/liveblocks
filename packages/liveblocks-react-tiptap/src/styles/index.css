@@ -615,12 +615,11 @@
 }
 
 /*************************************
- *       Collaboration cursors       *
+ *       Collaboration carets        *
  *************************************/
 
 /* Give a remote user a caret */
-.collaboration-carets__caret,
-.collaboration-cursor__caret {
+.collaboration-carets__caret {
   position: relative;
   margin-inline-start: -1px;
   margin-inline-end: -1px;
@@ -631,8 +630,7 @@
 }
 
 /* Render the username above the caret */
-.collaboration-carets__label,
-.collaboration-cursor__label {
+.collaboration-carets__label {
   position: absolute;
   inset-inline-start: -1px;
   inset-block-start: -1.4em;
