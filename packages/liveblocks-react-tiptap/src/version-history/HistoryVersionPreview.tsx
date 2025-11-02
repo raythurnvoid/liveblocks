@@ -13,7 +13,7 @@ import type { Content, Editor } from "@tiptap/react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { ComponentPropsWithoutRef } from "react";
 import { forwardRef, useCallback, useEffect } from "react";
-import { yXmlFragmentToProseMirrorRootNode } from "y-prosemirror";
+import { yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
 import { applyUpdate, Doc } from "yjs";
 
 const AUTHORS_TRUNCATE = 3;

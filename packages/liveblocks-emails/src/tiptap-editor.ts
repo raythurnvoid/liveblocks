@@ -1,5 +1,5 @@
 import { assertNever, type MentionData } from "@liveblocks/core";
-import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
+import { yXmlFragmentToProsemirrorJSON } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 
 import { isMentionNodeAttributeId } from "./lib/utils";

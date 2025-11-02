@@ -11,7 +11,7 @@ import type { Content, Range } from "@tiptap/core";
 import { PluginKey } from "@tiptap/pm/state";
 import type { DecorationSet } from "@tiptap/pm/view";
 import type { ChainedCommands, SingleCommands } from "@tiptap/react";
-import type { ProsemirrorBinding } from "y-prosemirror";
+import type { ProsemirrorBinding } from "@tiptap/y-tiptap";
 import type { Doc, PermanentUserData, Snapshot } from "yjs";
 
 export const LIVEBLOCKS_MENTION_KEY = new PluginKey("lb-plugin-mention");

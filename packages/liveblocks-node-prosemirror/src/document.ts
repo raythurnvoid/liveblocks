@@ -7,7 +7,7 @@ import { EditorState } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import type { MarkdownSerializer } from "prosemirror-markdown";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
-import { initProseMirrorDoc, updateYFragment } from "y-prosemirror";
+import { initProseMirrorDoc, updateYFragment } from "@tiptap/y-tiptap";
 import { applyUpdate, Doc, encodeStateAsUpdate, encodeStateVector } from "yjs";
 
 import { CommentExtension } from "./comment";

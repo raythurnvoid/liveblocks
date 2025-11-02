@@ -3,7 +3,7 @@ import type { Node } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { ySyncPluginKey } from "y-prosemirror";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 
 import type { CommentsExtensionStorage, ThreadPluginState } from "../types";
 import {
@@ -25,7 +25,7 @@ export const FILTERED_THREADS_PLUGIN_KEY = new PluginKey<{
 /**
  * Known issues: Overlapping marks are merged when reloading the doc. May be related:
  * https://github.com/ueberdosis/tiptap/issues/4339
- * https://github.com/yjs/y-prosemirror/issues/47
+ * https://github.com/yjs/@tiptap/y-tiptap/issues/47
  */
 const Comment = Mark.create({
   name: LIVEBLOCKS_COMMENT_MARK_TYPE,

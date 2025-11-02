@@ -12,7 +12,7 @@ import {
   getRelativeSelection,
   relativePositionToAbsolutePosition,
   ySyncPluginKey,
-} from "y-prosemirror";
+} from "@tiptap/y-tiptap";
 import type { RelativePosition } from "yjs";
 
 import type {

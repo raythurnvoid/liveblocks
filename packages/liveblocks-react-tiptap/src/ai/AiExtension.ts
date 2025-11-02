@@ -13,7 +13,7 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
   ySyncPluginKey,
   yXmlFragmentToProseMirrorFragment,
-} from "y-prosemirror";
+} from "@tiptap/y-tiptap";
 import type { Doc, Snapshot } from "yjs";
 import {
   createDocFromSnapshot,

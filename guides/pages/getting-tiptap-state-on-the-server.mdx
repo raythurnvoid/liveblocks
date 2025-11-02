@@ -82,13 +82,13 @@ With
 [`Liveblocks.getYjsDocumentAsBinaryUpdate`](/docs/api-reference/liveblocks-node#get-rooms-roomId-ydoc-binary)
 you can fetch your Yjs data, and place it inside a `Y.Doc`. Because Tiptap is a
 wrapper around ProseMirror, we can then call `yDocToProseMirror` from
-[`y-prosemirror`](https://github.com/yjs/y-prosemirror) to retrieve the Tiptap
-editor’s state.
+[`@tiptap/y-tiptap`](https://github.com/yjs/@tiptap/y-tiptap) to retrieve the
+Tiptap editor’s state.
 
 ```ts
 import * as Y from "yjs";
 import { Liveblocks } from "@liveblocks/node";
-import { yDocToProsemirrorJSON } from "y-prosemirror";
+import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap";
 
 const liveblocks = new Liveblocks({
   secret: "{{SECRET_KEY}}",

@@ -14,7 +14,7 @@ import { Slice } from "@tiptap/pm/model";
 import { Plugin } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion from "@tiptap/suggestion";
-import { ySyncPluginKey } from "y-prosemirror";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 
 import {
   LIVEBLOCKS_GROUP_MENTION_TYPE,
