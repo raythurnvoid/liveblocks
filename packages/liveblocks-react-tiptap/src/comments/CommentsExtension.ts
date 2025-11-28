@@ -1,15 +1,12 @@
 import { Extension, Mark, mergeAttributes } from "@tiptap/core";
 import type { Node } from "@tiptap/pm/model";
-import type { Transaction } from "@tiptap/pm/state";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import { ySyncPluginKey } from "@tiptap/y-tiptap";
 
-import type { CommentsExtensionStorage, ThreadPluginState } from "../types";
+import type { ThreadPluginState } from "../types";
 import {
   LIVEBLOCKS_COMMENT_MARK_TYPE,
   ThreadPluginActions,
-  THREADS_ACTIVE_SELECTION_PLUGIN,
   THREADS_PLUGIN_KEY,
 } from "../types";
 
@@ -240,42 +237,17 @@ const Comment = Mark.create({
   },
 });
 
-export const CommentsExtension = Extension.create<
-  { filteredThreads?: Set<string> },
-  CommentsExtensionStorage
->({
+export const CommentsExtension = Extension.create<{
+  filteredThreads?: Set<string>;
+}>({
   name: "liveblocksComments",
   priority: 95,
   addExtensions() {
     return [Comment];
   },
 
-  addStorage() {
-    return {
-      pendingComment: false,
-    };
-  },
-
   addCommands() {
     return {
-      addPendingComment: () => () => {
-        if (this.editor.state.selection.empty) {
-          return false;
-        }
-        // unselect any open threads
-        this.editor.view.dispatch(
-          this.editor.state.tr.setMeta(THREADS_PLUGIN_KEY, {
-            name: ThreadPluginActions.SET_SELECTED_THREAD_ID,
-            data: null,
-          })
-        );
-        this.storage.pendingComment = true;
-        return true;
-      },
-      closePendingComment: () => () => {
-        this.storage.pendingComment = false;
-        return true;
-      },
       selectThread: (id: string | null) => () => {
         const filtered = FILTERED_THREADS_PLUGIN_KEY.getState(
           this.editor.state
@@ -301,48 +273,17 @@ export const CommentsExtension = Extension.create<
       addComment:
         (id: string) =>
         ({ commands }) => {
-          if (
-            !this.storage.pendingComment ||
-            this.editor.state.selection.empty
-          ) {
+          if (this.editor.state.selection.empty) {
             return false;
           }
           commands.setMark(LIVEBLOCKS_COMMENT_MARK_TYPE, { threadId: id });
-          this.storage.pendingComment = false;
           return true;
         },
     };
   },
-  onSelectionUpdate(
-    this: { storage: CommentsExtensionStorage }, // NOTE: there are more types here I didn't override, this gets removed after submitting PR to tiptap
-    { transaction }: { transaction: Transaction } // TODO: remove this after submitting PR to tiptap
-  ) {
-    // ignore changes made by yjs
-    if (!this.storage.pendingComment || transaction.getMeta(ySyncPluginKey)) {
-      return;
-    }
-    // if selection changes, hide the composer. We could keep the composer open and move it to the new selection?
-    this.storage.pendingComment = false;
-  },
+
   addProseMirrorPlugins() {
     return [
-      new Plugin({
-        key: THREADS_ACTIVE_SELECTION_PLUGIN,
-        props: {
-          decorations: ({ doc, selection }) => {
-            if (!this.storage.pendingComment) {
-              return DecorationSet.create(doc, []);
-            }
-            const { from, to } = selection;
-            const decorations: Decoration[] = [
-              Decoration.inline(from, to, {
-                class: "lb-root lb-selection lb-tiptap-active-selection",
-              }),
-            ];
-            return DecorationSet.create(doc, decorations);
-          },
-        },
-      }),
       new Plugin({
         key: FILTERED_THREADS_PLUGIN_KEY,
         state: {

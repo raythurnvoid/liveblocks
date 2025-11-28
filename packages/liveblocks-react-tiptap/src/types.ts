@@ -26,9 +26,6 @@ export const LIVEBLOCKS_MENTION_EXTENSION = "liveblocksMentionExt";
 export const LIVEBLOCKS_MENTION_TYPE = "liveblocksMention";
 export const LIVEBLOCKS_GROUP_MENTION_TYPE = "liveblocksGroupMention";
 
-export const THREADS_ACTIVE_SELECTION_PLUGIN = new PluginKey(
-  "lb-threads-active-selection-plugin"
-);
 export const THREADS_PLUGIN_KEY = new PluginKey<ThreadPluginState>(
   "lb-threads-plugin"
 );
@@ -109,10 +106,6 @@ export type LiveblocksExtensionStorage = {
   doc: Doc;
   provider: LiveblocksYjsProvider;
   permanentUserData?: PermanentUserData;
-};
-
-export type CommentsExtensionStorage = {
-  pendingComment: boolean;
 };
 
 export const enum ThreadPluginActions {

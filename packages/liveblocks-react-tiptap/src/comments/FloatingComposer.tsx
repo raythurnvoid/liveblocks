@@ -28,9 +28,7 @@ import type {
 import { forwardRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 
-import type {
-  ExtendedChainedCommands,
-} from "../types";
+import type { ExtendedChainedCommands } from "../types";
 import { compareSelections, getDomRangeFromSelection } from "../utils";
 
 type FloatingComposerComponents = {
@@ -71,10 +69,9 @@ export const FloatingComposer = forwardRef<
           return undefined;
         };
 
-        const hasPendingComment = ctx.editor.storage.liveblocksComments.pendingComment;
-        const isEmpty = ctx.editor.state.selection.empty;
-
-        return hasPendingComment && !isEmpty ? ctx.editor.state.selection : undefined;
+        return !ctx.editor.state.selection.empty
+          ? ctx.editor.state.selection
+          : undefined;
       },
       equalityFn: compareSelections,
     }) ?? undefined;
