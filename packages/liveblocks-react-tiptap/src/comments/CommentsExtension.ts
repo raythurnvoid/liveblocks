@@ -24,7 +24,9 @@ export const FILTERED_THREADS_PLUGIN_KEY = new PluginKey<{
  * https://github.com/ueberdosis/tiptap/issues/4339
  * https://github.com/yjs/@tiptap/y-tiptap/issues/47
  */
-const Comment = Mark.create({
+const Comment = Mark.create<{
+  onThreadsChange?: (threadIds: string[]) => void;
+}>({
   name: LIVEBLOCKS_COMMENT_MARK_TYPE,
   excludes: "",
   inclusive: false,
@@ -95,6 +97,7 @@ const Comment = Mark.create({
   addProseMirrorPlugins() {
     const updateState = (doc: Node, selectedThreadId: string | null) => {
       const threadPositions = new Map<string, { from: number; to: number }>();
+      const threadIds = new Set<string>();
       const decorations: Decoration[] = [];
       // find all thread marks and store their position + create decoration for selected thread
       doc.descendants((node, pos) => {
@@ -119,6 +122,7 @@ const Comment = Mark.create({
               from: Math.min(from, currentPosition.from),
               to: Math.max(to, currentPosition.to),
             });
+            threadIds.add(thisThreadId);
 
             if (selectedThreadId === thisThreadId) {
               decorations.push(
@@ -145,12 +149,15 @@ const Comment = Mark.create({
         decorations: DecorationSet.create(doc, decorations),
         selectedThreadId,
         threadPositions,
+        threadIds,
         selectedThreadPos:
           selectedThreadId !== null
             ? (threadPositions.get(selectedThreadId)?.to ?? null)
             : null,
       };
     };
+
+    const onThreadsChange = this.options.onThreadsChange;
 
     return [
       new Plugin({
@@ -159,6 +166,7 @@ const Comment = Mark.create({
           init() {
             return {
               threadPositions: new Map<string, { from: number; to: number }>(),
+              threadIds: new Set<string>(),
               selectedThreadId: null,
               selectedThreadPos: null,
               decorations: DecorationSet.empty,
@@ -170,19 +178,27 @@ const Comment = Mark.create({
               return state;
             }
 
+            let nextState;
+
             if (!action) {
               // Doc changed, but no action, just update rects
-              return updateState(tr.doc, state.selectedThreadId);
-            }
-            // handle actions, possibly support more actions
-            if (
+              nextState = updateState(tr.doc, state.selectedThreadId);
+            } else if (
               action.name === ThreadPluginActions.SET_SELECTED_THREAD_ID &&
               state.selectedThreadId !== action.data
             ) {
-              return updateState(tr.doc, action.data);
+              // handle actions, possibly support more actions
+              nextState = updateState(tr.doc, action.data);
+            } else {
+              return state;
             }
 
-            return state;
+            // Notify about thread ID changes
+            if (!areSetsEqual(state.threadIds, nextState.threadIds)) {
+              onThreadsChange?.(Array.from(nextState.threadIds));
+            }
+
+            return nextState;
           },
         },
         props: {
@@ -239,44 +255,74 @@ const Comment = Mark.create({
 
 export const CommentsExtension = Extension.create<{
   filteredThreads?: Set<string>;
+  onThreadsChange?: (threadIds: string[]) => void;
 }>({
   name: "liveblocksComments",
   priority: 95,
   addExtensions() {
-    return [Comment];
+    return [
+      Comment.configure({
+        onThreadsChange: this.options.onThreadsChange,
+      }),
+    ];
   },
 
   addCommands() {
     return {
-      selectThread: (id: string | null) => () => {
-        const filtered = FILTERED_THREADS_PLUGIN_KEY.getState(
-          this.editor.state
-        )?.filteredThreads;
-        if (id && filtered && !filtered.has(id)) {
-          this.editor.view.dispatch(
-            this.editor.state.tr.setMeta(THREADS_PLUGIN_KEY, {
+      selectThread:
+        (id: string | null) =>
+        ({ tr }) => {
+          const filtered = FILTERED_THREADS_PLUGIN_KEY.getState(
+            this.editor.state
+          )?.filteredThreads;
+          if (id && filtered && !filtered.has(id)) {
+            tr.setMeta(THREADS_PLUGIN_KEY, {
               name: ThreadPluginActions.SET_SELECTED_THREAD_ID,
               data: null,
-            })
-          );
-          return true;
-        }
+            });
+            return true;
+          }
 
-        this.editor.view.dispatch(
-          this.editor.state.tr.setMeta(THREADS_PLUGIN_KEY, {
+          tr.setMeta(THREADS_PLUGIN_KEY, {
             name: ThreadPluginActions.SET_SELECTED_THREAD_ID,
             data: id,
-          })
-        );
-        return true;
-      },
+          });
+          return true;
+        },
       addComment:
         (id: string) =>
-        ({ commands }) => {
-          if (this.editor.state.selection.empty) {
+        ({ commands, state }) => {
+          if (state.selection.empty) {
             return false;
           }
           commands.setMark(LIVEBLOCKS_COMMENT_MARK_TYPE, { threadId: id });
+          return true;
+        },
+      markCommentAsOrphan:
+        (args: { threadId: string; orphan: boolean }) =>
+        ({ tr, state }) => {
+          const markType = state.schema.marks[LIVEBLOCKS_COMMENT_MARK_TYPE];
+          if (!markType) {
+            return false;
+          }
+
+          state.doc.descendants((node, pos) => {
+            node.marks.forEach((mark) => {
+              if (mark.type !== markType) return;
+              const threadId = mark.attrs.threadId as string | undefined;
+              if (threadId !== args.threadId) return;
+
+              tr.removeMark(pos, pos + node.nodeSize, mark).addMark(
+                pos,
+                pos + node.nodeSize,
+                markType.create({
+                  ...mark.attrs,
+                  orphan: args.orphan,
+                })
+              );
+            });
+          });
+
           return true;
         },
     };

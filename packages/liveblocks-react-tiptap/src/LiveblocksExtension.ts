@@ -5,9 +5,8 @@ import type {
   User,
 } from "@liveblocks/core";
 import { kInternal, TextEditorType } from "@liveblocks/core";
-import { useClient, useRoom } from "@liveblocks/react";
+import { useRoom } from "@liveblocks/react";
 import {
-  getUmbrellaStoreForClient,
   useCreateTextMention,
   useDeleteTextMention,
   useReportTextEditor,
@@ -17,18 +16,16 @@ import { useInitial } from "@liveblocks/react-ui/_private";
 import type { LiveblocksYjsProvider } from "@liveblocks/yjs";
 import { getYjsProviderForRoom } from "@liveblocks/yjs";
 import type { AnyExtension, Editor } from "@tiptap/core";
-import { Extension, getMarkType, Mark } from "@tiptap/core";
+import { Extension, Mark } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret, {
   type CollaborationCaretOptions,
 } from "@tiptap/extension-collaboration-caret";
-import type { Mark as PMMark } from "@tiptap/pm/model";
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 import { AiExtension } from "./ai/AiExtension";
 import {
   areSetsEqual,
-  CommentsExtension,
   FILTERED_THREADS_PLUGIN_KEY,
 } from "./comments/CommentsExtension";
 import { MentionExtension } from "./mentions/MentionExtension";
@@ -38,13 +35,11 @@ import type {
   ResolveContextualPromptArgs,
   ResolveContextualPromptResponse,
 } from "./types";
-import { LIVEBLOCKS_COMMENT_MARK_TYPE } from "./types";
 
 type WithRequired<T, K extends keyof T> = T & { [P in K]-?: T[P] };
 
 const DEFAULT_OPTIONS: WithRequired<LiveblocksExtensionOptions, "field"> = {
   field: "default",
-  comments: true,
   mentions: true,
   offlineSupport_experimental: false,
   enablePermanentUserData: false,
@@ -163,9 +158,7 @@ const YChangeMark = Mark.create({
   },
 });
 
-export const useLiveblocksExtension = (
-  opts?: LiveblocksExtensionOptions
-): Extension => {
+export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
   const options = {
     ...DEFAULT_OPTIONS,
     ...opts,
@@ -189,9 +182,6 @@ export const useLiveblocksExtension = (
   // });
 
   const isEditorReady = useIsEditorReady();
-  const client = useClient();
-  const store = getUmbrellaStoreForClient(client);
-  const roomId = room.id;
   const yjsProvider = useYjsProvider();
 
   // If the user provided initialContent, wait for ready and then set it
@@ -252,7 +242,7 @@ export const useLiveblocksExtension = (
 
   // Tiptap has options default as any, in tiptap2, we could use never, but now we must use any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return Extension.create<never, LiveblocksExtensionStorage>({
+  return Extension.create<any, LiveblocksExtensionStorage>({
     name: "liveblocksExtension",
 
     onCreate() {
@@ -313,55 +303,6 @@ export const useLiveblocksExtension = (
       }
       // we also listen in case the user info changes
       this.storage.unsubs.push(room.events.self.subscribe(updateUser));
-      if (options.comments) {
-        const commentMarkType = getMarkType(
-          LIVEBLOCKS_COMMENT_MARK_TYPE,
-          this.editor.schema
-        );
-        this.storage.unsubs.push(
-          // Subscribe to threads so we can update comment marks if they become resolved/deleted
-          store.outputs.threads.subscribe(() => {
-            const threadMap = new Map(
-              store.outputs.threads
-                .get()
-                .findMany(roomId, { resolved: false }, "asc", undefined)
-                .map((thread) => [thread.id, true])
-            );
-            function isComment(mark: PMMark): mark is PMMark & {
-              attrs: { orphan: boolean; threadId: string };
-            } {
-              return mark.type.name === LIVEBLOCKS_COMMENT_MARK_TYPE;
-            }
-            // when threads change, find marks and update them if needed
-            this.editor.state.doc.descendants((node, pos) => {
-              node.marks.forEach((mark) => {
-                if (isComment(mark)) {
-                  const markThreadId = mark.attrs.threadId;
-                  const isOrphan = !threadMap.has(markThreadId);
-                  if (isOrphan !== mark.attrs.orphan) {
-                    const { tr } = this.editor.state;
-                    const trimmedFrom = Math.max(pos, 0);
-                    const trimmedTo = Math.min(
-                      pos + node.nodeSize,
-                      this.editor.state.doc.content.size - 1
-                    );
-                    tr.removeMark(trimmedFrom, trimmedTo, mark);
-                    tr.addMark(
-                      trimmedFrom,
-                      trimmedTo,
-                      commentMarkType.create({
-                        ...mark.attrs,
-                        orphan: isOrphan,
-                      })
-                    );
-                    this.editor.view.dispatch(tr);
-                  }
-                }
-              });
-            });
-          })
-        );
-      }
     },
     onDestroy() {
       this.storage.unsubs.forEach((unsub) => unsub());
@@ -406,9 +347,6 @@ export const useLiveblocksExtension = (
         }) as Extension<CollaborationCaretOptions>,
       ];
 
-      if (options.comments) {
-        extensions.push(CommentsExtension);
-      }
       if (options.mentions) {
         extensions.push(
           MentionExtension.configure({

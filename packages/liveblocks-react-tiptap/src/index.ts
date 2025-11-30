@@ -4,7 +4,6 @@ import type {
   AiCommands,
   AiExtensionStorage,
   CommentsCommands,
-  CommentsExtensionStorage,
   LiveblocksExtensionStorage,
 } from "./types";
 import { PKG_FORMAT, PKG_NAME, PKG_VERSION } from "./version";
@@ -13,8 +12,14 @@ detectDupes(PKG_NAME, PKG_VERSION, PKG_FORMAT);
 
 export type { AiToolbarProps } from "./ai/AiToolbar";
 export { AiToolbar } from "./ai/AiToolbar";
-export type { AnchoredThreadsProps } from "./comments/AnchoredThreads";
+export type {
+  AnchoredThreadsProps,
+  AnchoredThreadComponent_Props,
+  AnchoredThreads_CssVars,
+} from "./comments/AnchoredThreads";
+export { AnchoredThreads_CssVars_DEFAULTS } from "./comments/AnchoredThreads";
 export { AnchoredThreads } from "./comments/AnchoredThreads";
+export { CommentsExtension } from "./comments/CommentsExtension";
 export type { FloatingComposerProps } from "./comments/FloatingComposer";
 export { FloatingComposer } from "./comments/FloatingComposer";
 export type { FloatingThreadsProps } from "./comments/FloatingThreads";
@@ -40,6 +45,7 @@ export type {
   ResolveContextualPromptArgs,
   ResolveContextualPromptResponse,
 } from "./types";
+export { THREADS_PLUGIN_KEY } from "./types";
 export type { HistoryVersionPreviewProps } from "./version-history/HistoryVersionPreview";
 export { HistoryVersionPreview } from "./version-history/HistoryVersionPreview";
 
@@ -47,7 +53,6 @@ declare module "@tiptap/core" {
   interface Storage {
     liveblocksAi: AiExtensionStorage;
     liveblocksExtension: LiveblocksExtensionStorage;
-    liveblocksComments: CommentsExtensionStorage;
   }
 
   interface Commands<ReturnType> {

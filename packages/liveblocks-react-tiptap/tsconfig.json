@@ -1,12 +1,17 @@
 {
-  // Use the same settings for all packages
-  "extends": "../../shared/tsconfig.common.json",
-
-  "compilerOptions": {
-    "lib": ["dom", "es2022"],
-
-    // TODO: Try to get rid of these overrides
-    "noUncheckedIndexedAccess": false // OVERWRITTEN to relax a bit
-  },
-  "include": ["src", "rollup.config.js"]
+	// Use the same settings for all packages
+	"extends": "../../shared/tsconfig.common.json",
+	"compilerOptions": {
+		"lib": [
+			"dom",
+			"es2022"
+		],
+		// TODO: Try to get rid of these overrides
+		"noUncheckedIndexedAccess": false // OVERWRITTEN to relax a bit
+	},
+	"include": [
+		"src",
+		"rollup.config.js",
+		"app_lb_bridge.ts"
+	]
 }

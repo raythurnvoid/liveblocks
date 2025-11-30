@@ -228,7 +228,6 @@ declare module "@tiptap/core" {
   interface Storage {
     liveblocksAi: AiExtensionStorage;
     liveblocksExtension: LiveblocksExtensionStorage;
-    liveblocksComments: CommentsExtensionStorage;
   }
   // TODO: this is already defined in collaboration-caret, we shouldn't need it, but something isn't working
   // maybe because we use configure?
@@ -263,6 +262,7 @@ declare module "@tiptap/core" {
 }
 export type ThreadPluginState = {
   threadPositions: Map<string, { from: number; to: number }>;
+  threadIds: Set<string>;
   selectedThreadId: string | null;
   selectedThreadPos: number | null;
   decorations: DecorationSet;
@@ -293,6 +293,13 @@ export type CommentsCommands<ReturnType = boolean> = {
   addComment: (id: string) => ReturnType;
   selectThread: (id: string | null) => ReturnType;
   addPendingComment: () => ReturnType;
+  /**
+   * Mark a comment as orphan based on thread ID
+   */
+  markCommentAsOrphan: (args: {
+    threadId: string;
+    orphan: boolean;
+  }) => ReturnType;
 
   /** @internal */
   closePendingComment: () => ReturnType;

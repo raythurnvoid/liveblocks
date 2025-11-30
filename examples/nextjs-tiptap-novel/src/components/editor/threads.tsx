@@ -25,13 +25,11 @@ export function Threads() {
           threads={threads}
           style={{ width: "350px" }}
         />
-      ) : (
-        <AnchoredThreads
+      ) : /* <AnchoredThreads
           editor={editor}
           threads={threads}
           style={{ width: "350px" }}
-        />
-      )}
+        /> */ null}
     </>
   );
 }

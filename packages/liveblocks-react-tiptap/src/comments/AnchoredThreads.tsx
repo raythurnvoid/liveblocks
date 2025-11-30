@@ -1,9 +1,4 @@
-import type { BaseMetadata, DM, ThreadData } from "@liveblocks/core";
 import { useLayoutEffect } from "@liveblocks/react/_private";
-import {
-  Thread as DefaultThread,
-  type ThreadProps,
-} from "@liveblocks/react-ui";
 import { cn } from "@liveblocks/react-ui/_private";
 import { type Editor, useEditorState } from "@tiptap/react";
 import type { ComponentPropsWithoutRef, ComponentType } from "react";
@@ -11,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { THREADS_PLUGIN_KEY } from "../types";
 import { getRectFromCoords } from "../utils";
+import type { human_thread_messages_Thread } from "../../app_lb_bridge.ts";
 
 const DEFAULT_GAP = 20;
 const DEFAULT_ACTIVE_THREAD_OFFSET = -12;
@@ -19,21 +15,47 @@ const DEFAULT_ACTIVE_THREAD_OFFSET = -12;
 const GAP = `var(--lb-tiptap-anchored-threads-gap, ${DEFAULT_GAP}px)`;
 const ACTIVE_THREAD_OFFSET = `var(--lb-tiptap-anchored-threads-active-thread-offset, ${DEFAULT_ACTIVE_THREAD_OFFSET}px)`;
 
-type AnchoredThreadsComponents = {
-  Thread: ComponentType<ThreadProps>;
+/**
+ * CSS variables supported by AnchoredThreads component.
+ * These can be set via inline styles or CSS to customize thread positioning.
+ */
+export type AnchoredThreads_CssVars = {
+  "--lb-tiptap-anchored-threads-gap": string;
+  "--lb-tiptap-anchored-threads-active-thread-offset": string;
 };
 
-export interface AnchoredThreadsProps<M extends BaseMetadata = DM>
+/**
+ * Default values for AnchoredThreads CSS variables.
+ */
+export const AnchoredThreads_CssVars_DEFAULTS: Partial<AnchoredThreads_CssVars> =
+  {
+    "--lb-tiptap-anchored-threads-gap": `${DEFAULT_GAP}px`,
+    "--lb-tiptap-anchored-threads-active-thread-offset": `${DEFAULT_ACTIVE_THREAD_OFFSET}px`,
+  } as const;
+
+export type AnchoredThreadComponent_Props = {
+  thread: human_thread_messages_Thread;
+  isActive: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+  onClick?: React.MouseEventHandler<HTMLElement>;
+};
+
+type AnchoredThreadsComponents = {
+  Thread: ComponentType<AnchoredThreadComponent_Props>;
+};
+
+export interface AnchoredThreadsProps
   extends Omit<ComponentPropsWithoutRef<"div">, "children"> {
   /**
    * The threads to display.
    */
-  threads: ThreadData<M>[];
+  threads: human_thread_messages_Thread[];
 
   /**
-   * Override the component's components.
+   * The thread component to render.
    */
-  components?: Partial<AnchoredThreadsComponents>;
+  components: AnchoredThreadsComponents;
 
   /**
    * The Tiptap editor.
@@ -49,10 +71,13 @@ export function AnchoredThreads({
   editor,
   ...props
 }: AnchoredThreadsProps) {
-  const Thread = components?.Thread ?? DefaultThread;
+  const Thread = components.Thread;
   const containerRef = useRef<HTMLDivElement>(null);
   const [orderedThreads, setOrderedThreads] = useState<
-    { position: { from: number; to: number }; thread: ThreadData }[]
+    {
+      position: { from: number; to: number };
+      thread: human_thread_messages_Thread;
+    }[]
   >([]);
   const [elements, setElements] = useState<Map<string, HTMLElement>>(new Map());
   const [positions, setPositions] = useState<Map<string, number>>(new Map()); // A map of thread ids to their 'top' position in the document
@@ -70,7 +95,7 @@ export function AnchoredThreads({
       if (!prev || !next) return false;
       return (
         prev.pluginState?.selectedThreadId ===
-        next.pluginState?.selectedThreadId &&
+          next.pluginState?.selectedThreadId &&
         prev.pluginState?.threadPositions === next.pluginState?.threadPositions
       ); // new map is made each time threadPos updates so shallow equality is fine
     },
@@ -144,13 +169,16 @@ export function AnchoredThreads({
       })).reduce(
         (acc, { threadId, position }) => {
           const thread = threads.find(
-            (thread) => thread.id === threadId && !thread.resolved
+            (thread) => thread.id === threadId && !thread.is_archived
           );
           if (!thread) return acc;
           acc.push({ thread, position });
           return acc;
         },
-        [] as { thread: ThreadData; position: { from: number; to: number } }[]
+        [] as {
+          thread: human_thread_messages_Thread;
+          position: { from: number; to: number };
+        }[]
       )
     );
     handlePositionThreads();
@@ -214,7 +242,7 @@ export function AnchoredThreads({
           Math.min(position.from, editor.state.doc.content.size - 1)
         );
         const rect = getRectFromCoords(coords);
-        const offset = editor.options.element?.getBoundingClientRect().top ?? 0;
+        const offset = editor.view.dom.getBoundingClientRect().top;
 
         let top = rect.top - offset;
 
@@ -247,8 +275,9 @@ export function AnchoredThreads({
   );
 }
 
-interface ThreadWrapperProps extends ThreadProps {
-  Thread: ComponentType<ThreadProps>;
+interface ThreadWrapperProps extends ComponentPropsWithoutRef<"div"> {
+  Thread: ComponentType<AnchoredThreadComponent_Props>;
+  thread: human_thread_messages_Thread;
   onThreadClick: (id: string) => void;
   onItemAdd: (id: string, el: HTMLElement) => void;
   onItemRemove: (id: string) => void;
@@ -287,13 +316,7 @@ function ThreadWrapper({
       className={cn("lb-tiptap-anchored-threads-thread-container", className)}
       {...props}
     >
-      <Thread
-        thread={thread}
-        data-state={isActive ? "active" : "inactive"}
-        onClick={handleThreadClick}
-        className="lb-tiptap-anchored-threads-thread"
-        showComposer={isActive ? true : false}
-      />
+      <Thread thread={thread} isActive={isActive} onClick={handleThreadClick} />
     </div>
   );
 }
