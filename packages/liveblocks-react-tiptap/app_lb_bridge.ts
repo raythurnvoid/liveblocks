@@ -3,7 +3,7 @@
 export type {
   human_thread_messages_Thread,
   human_thread_messages_Message,
-} from "../../../../shared/human_thread_messages.ts";
+} from "../../../../shared/human-thread-messages.ts";
 
 export {
   ai_chat_HARDCODED_ORG_ID,
