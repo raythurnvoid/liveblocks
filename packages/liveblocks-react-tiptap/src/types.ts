@@ -6,13 +6,14 @@ import type {
   TextEditorType,
   ThreadData,
 } from "@liveblocks/core";
-import type { LiveblocksYjsProvider } from "@liveblocks/yjs";
+import type { Awareness, LiveblocksYjsProvider } from "@liveblocks/yjs";
 import type { Content, Range } from "@tiptap/core";
 import { PluginKey } from "@tiptap/pm/state";
 import type { DecorationSet } from "@tiptap/pm/view";
 import type { ChainedCommands, SingleCommands } from "@tiptap/react";
 import type { ProsemirrorBinding } from "@tiptap/y-tiptap";
 import type { Doc, PermanentUserData, Snapshot } from "yjs";
+import type { pages_PresenceStore } from "../app_lb_bridge.ts";
 
 export const LIVEBLOCKS_MENTION_KEY = new PluginKey("lb-plugin-mention");
 export const LIVEBLOCKS_MENTION_PASTE_KEY = new PluginKey(
@@ -99,6 +100,10 @@ export type LiveblocksExtensionOptions = {
    * Only useful for Liveblocks developers, not for end users.
    */
   textEditorType?: TextEditorType;
+  /**
+   * Convex presence store for awareness. Required for Convex-backed presence.
+   */
+  presenceStore?: pages_PresenceStore;
 };
 
 export type LiveblocksExtensionStorage = {

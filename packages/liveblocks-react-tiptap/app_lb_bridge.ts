@@ -11,3 +11,5 @@ export {
 } from "../../../../src/lib/ai-chat.ts";
 
 export { app_convex_api } from "../../../../src/lib/app-convex-client.ts";
+
+export { pages_PresenceStore } from "../../../../src/lib/pages.ts";

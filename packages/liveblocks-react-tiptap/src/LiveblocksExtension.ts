@@ -1,9 +1,3 @@
-import type {
-  BaseUserMeta,
-  IUserInfo,
-  JsonObject,
-  User,
-} from "@liveblocks/core";
 import { kInternal, TextEditorType } from "@liveblocks/core";
 import { useRoom } from "@liveblocks/react";
 import {
@@ -262,34 +256,49 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
           "[Liveblocks] Liveblocks own mention plugin is enabled, using another mention plugin may cause a conflict."
         );
       }
-      const self = room.getSelf();
-      const updateUser = ({
-        info,
-        id: userId,
-      }: User<JsonObject, BaseUserMeta>) => {
+
+      if (!options.presenceStore) {
+        throw new Error("presenceStore is required for useLiveblocksExtension");
+      }
+
+      const sessionId = options.presenceStore.localSessionId;
+      const userId = options.presenceStore.sessionIdUserIdMap.get(sessionId);
+      let presence = options.presenceStore.presenceData.get(
+        options.presenceStore.localSessionId
+      ) /* assert not nullish or typescript complains */!;
+      if (!presence) {
+        throw new Error("presence for local session not found");
+      }
+      if (!userId) {
+        throw new Error("userId for local session not found");
+      }
+
+      const updateUser = (info: {
+        userId: string;
+        name: string;
+        color: string;
+      }) => {
         if (!info) {
           return;
         }
-        const { user: storedUser } =
-          this.storage.provider.awareness.getLocalState() as {
-            user: IUserInfo;
-          };
         if (this.storage.permanentUserData) {
           const pud = this.storage.permanentUserData.clients.get(
             this.storage.doc.clientID
           );
           // Only update if there is no entry or if the entry is different
-          if (!pud || pud !== userId) {
+          if (!pud || pud !== info.userId) {
             this.storage.permanentUserData.setUserMapping(
               this.storage.doc,
               this.storage.doc.clientID,
-              userId ?? "Unknown" // TODO: change this to the user's ID so we can map it to the user's name
+              info.userId
             );
           }
         }
+
+        const yjsPresence = this.storage.provider.awareness.getLocalState();
         if (
-          info.name !== storedUser?.name ||
-          info.color !== storedUser?.color
+          info.name !== yjsPresence?.user?.name ||
+          info.color !== yjsPresence?.user?.color
         ) {
           this.editor.commands.updateUser({
             name: info.name,
@@ -298,11 +307,39 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
         }
       };
       // if we already have user info, we update the user
-      if (self?.info) {
-        updateUser(self);
+      if (presence) {
+        updateUser({
+          userId,
+          name: presence.name,
+          color: presence.color,
+        });
       }
+
+      const abortController = new AbortController();
+      options.presenceStore.addEventListener(
+        "data_changed",
+        (event) => {
+          if (event.detail.sessionId === sessionId) {
+            const oldPresenceData = presence;
+            if (
+              oldPresenceData.name !== event.detail.data.name ||
+              oldPresenceData.color !== event.detail.data.color
+            ) {
+              updateUser({
+                userId,
+                name: event.detail.data.name,
+                color: event.detail.data.color,
+              });
+            }
+
+            presence = event.detail.data;
+          }
+        },
+        { signal: abortController.signal }
+      );
+
       // we also listen in case the user info changes
-      this.storage.unsubs.push(room.events.self.subscribe(updateUser));
+      this.storage.unsubs.push(() => abortController.abort());
     },
     onDestroy() {
       this.storage.unsubs.forEach((unsub) => unsub());
@@ -318,11 +355,19 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
       ];
     },
     addStorage() {
-      const provider = getYjsProviderForRoom(room, {
+      if (!options.presenceStore) {
+        throw new Error("presenceStore is required for useLiveblocksExtension");
+      }
+
+      const providerOptions: Parameters<typeof getYjsProviderForRoom>[1] = {
         enablePermanentUserData:
           !!options.ai || options.enablePermanentUserData,
         offlineSupport_experimental: options.offlineSupport_experimental,
-      });
+        presenceStore: options.presenceStore,
+      };
+
+      const provider = getYjsProviderForRoom(room, providerOptions);
+
       return {
         doc: provider.getYDoc(),
         provider,
@@ -331,6 +376,22 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
       };
     },
     addExtensions() {
+      if (!options.presenceStore) {
+        throw new Error("presenceStore is required for useLiveblocksExtension");
+      }
+
+      const presenceData = options.presenceStore.presenceData.get(
+        options.presenceStore.localSessionId
+      );
+      if (!presenceData) {
+        throw new Error("presenceData for local session not found");
+      }
+
+      const user = {
+        name: presenceData.name,
+        color: presenceData.color,
+      };
+
       const extensions: AnyExtension[] = [
         YChangeMark,
 
@@ -343,6 +404,7 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
           provider: this.storage.provider,
         }),
         CollaborationCaret.configure({
+          user,
           provider: this.storage.provider,
         }) as Extension<CollaborationCaretOptions>,
       ];

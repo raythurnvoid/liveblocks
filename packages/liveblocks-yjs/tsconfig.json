@@ -1,8 +1,13 @@
 {
-  // Use the same settings for all packages
-  "extends": "../../shared/tsconfig.common.json",
-  "compilerOptions": {
-    "lib": ["dom"]
-  },
-  "include": ["src"]
+	// Use the same settings for all packages
+	"extends": "../../shared/tsconfig.common.json",
+	"compilerOptions": {
+		"lib": [
+			"dom"
+		]
+	},
+	"include": [
+		"src",
+		"app_lb_bridge.ts"
+	]
 }

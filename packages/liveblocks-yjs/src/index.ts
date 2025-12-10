@@ -7,3 +7,4 @@ detectDupes(PKG_NAME, PKG_VERSION, PKG_FORMAT);
 export type { ProviderOptions } from "./provider";
 export { LiveblocksYjsProvider } from "./provider";
 export { getYjsProviderForRoom } from "./providerContext";
+export { Awareness } from "./awareness";

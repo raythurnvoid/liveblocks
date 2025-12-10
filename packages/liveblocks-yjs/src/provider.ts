@@ -13,12 +13,14 @@ import { PermanentUserData } from "yjs";
 
 import { Awareness } from "./awareness";
 import yDocHandler from "./doc";
+import type { pages_PresenceStore } from "../app_lb_bridge.ts";
 
 export type ProviderOptions = {
   enablePermanentUserData?: boolean;
   autoloadSubdocs?: boolean;
   offlineSupport_experimental?: boolean;
   useV2Encoding_experimental?: boolean;
+  presenceStore?: pages_PresenceStore;
 };
 
 export class LiveblocksYjsProvider
@@ -63,8 +65,14 @@ export class LiveblocksYjsProvider
     // TODO: Display a warning if a YjsProvider is already attached to the room
     room[kInternal].setYjsProvider(this);
 
-    // if we have a connectionId already during construction, use that
-    this.awareness = new Awareness(this.rootDoc, this.room);
+    // Construct Convex-backed awareness
+    if (!this.options.presenceStore) {
+      throw new Error(
+        "convexPresenceConfig is required for LiveblocksYjsProvider"
+      );
+    }
+
+    this.awareness = new Awareness(this.rootDoc, this.options.presenceStore);
 
     this.unsubscribers.push(
       this.room.events.status.subscribe((status) => {
