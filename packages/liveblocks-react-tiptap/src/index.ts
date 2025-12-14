@@ -25,7 +25,7 @@ export { FloatingComposer } from "./comments/FloatingComposer";
 export type { FloatingThreadsProps } from "./comments/FloatingThreads";
 export { FloatingThreads } from "./comments/FloatingThreads";
 export { useLiveblocksExtension } from "./LiveblocksExtension";
-export { useIsEditorReady } from "./LiveblocksExtension";
+// export { useIsEditorReady } from "./LiveblocksExtension";
 export { GroupMentionNode } from "./mentions/GroupMentionNode";
 export { MentionExtension } from "./mentions/MentionExtension";
 export { MentionNode } from "./mentions/MentionNode";

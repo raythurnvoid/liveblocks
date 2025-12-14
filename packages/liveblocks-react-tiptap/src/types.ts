@@ -6,7 +6,7 @@ import type {
   TextEditorType,
   ThreadData,
 } from "@liveblocks/core";
-import type { Awareness, LiveblocksYjsProvider } from "@liveblocks/yjs";
+import type { LiveblocksYjsProvider } from "@liveblocks/yjs";
 import type { Content, Range } from "@tiptap/core";
 import { PluginKey } from "@tiptap/pm/state";
 import type { DecorationSet } from "@tiptap/pm/view";
@@ -92,6 +92,12 @@ export type LiveblocksExtensionOptions = {
   threads_experimental?: ThreadData[];
   initialContent?: Content;
   enablePermanentUserData?: boolean;
+
+  /**
+   * Provide a pre-instantiated Yjs provider from the app layer.
+   * When set, the extension will reuse it and will NOT destroy it.
+   */
+  yjsProvider?: LiveblocksYjsProvider;
   /**
    * @internal
    * For reporting another text editor type from a

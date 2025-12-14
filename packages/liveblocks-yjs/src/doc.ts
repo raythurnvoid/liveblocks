@@ -88,7 +88,11 @@ export default class yDocHandler extends Observable<unknown> {
   }): void => {
     // apply update from the server, updates from the server can be v1 or v2
     const applyUpdate = v2 ? Y.applyUpdateV2 : Y.applyUpdate;
-    applyUpdate(this.doc, update, "backend");
+    // Ack packets may send an empty update; Yjs will throw if we try to decode it.
+    // We still want to update remoteSnapshotHash below to keep sync status accurate.
+    if (update.byteLength > 0) {
+      applyUpdate(this.doc, update, "backend");
+    }
     // if this update is the result of a fetch, the state vector is included
     if (stateVector) {
       if (!readOnly) {

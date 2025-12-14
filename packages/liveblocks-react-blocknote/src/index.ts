@@ -12,4 +12,4 @@ export { withLiveblocksEditorOptions } from "./initialization/liveblocksEditorOp
 export { withLiveblocksSchema } from "./initialization/schema";
 export { useCreateBlockNoteWithLiveblocks } from "./initialization/useCreateBlockNoteWithLiveblocks";
 export { HistoryVersionPreview } from "./version-history/HistoryVersionPreview";
-export { useIsEditorReady } from "@liveblocks/react-tiptap";
+// export { useIsEditorReady } from "@liveblocks/react-tiptap";

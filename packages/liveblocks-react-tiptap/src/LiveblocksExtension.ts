@@ -1,28 +1,25 @@
-import { kInternal, TextEditorType } from "@liveblocks/core";
-import { useRoom } from "@liveblocks/react";
-import {
-  useCreateTextMention,
-  useDeleteTextMention,
-  useReportTextEditor,
-  useYjsProvider,
-} from "@liveblocks/react/_private";
-import { useInitial } from "@liveblocks/react-ui/_private";
-import type { LiveblocksYjsProvider } from "@liveblocks/yjs";
-import { getYjsProviderForRoom } from "@liveblocks/yjs";
+// NOTE: Mentions integration (text-mentions endpoints + room private hooks) was
+// used when this package was wired to the Liveblocks Room system. We migrated
+// away from that integration, but we keep the code commented out for reference.
+//
+// import {
+//   useCreateTextMention,
+//   useDeleteTextMention,
+// } from "@liveblocks/react/_private";
 import type { AnyExtension, Editor } from "@tiptap/core";
 import { Extension, Mark } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret, {
   type CollaborationCaretOptions,
 } from "@tiptap/extension-collaboration-caret";
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef } from "react";
 
 import { AiExtension } from "./ai/AiExtension";
 import {
   areSetsEqual,
   FILTERED_THREADS_PLUGIN_KEY,
 } from "./comments/CommentsExtension";
-import { MentionExtension } from "./mentions/MentionExtension";
+// import { MentionExtension } from "./mentions/MentionExtension";
 import type {
   LiveblocksExtensionOptions,
   LiveblocksExtensionStorage,
@@ -34,7 +31,8 @@ type WithRequired<T, K extends keyof T> = T & { [P in K]-?: T[P] };
 
 const DEFAULT_OPTIONS: WithRequired<LiveblocksExtensionOptions, "field"> = {
   field: "default",
-  mentions: true,
+  // TODO: to be refactored for Convex BE
+  // mentions: true,
   offlineSupport_experimental: false,
   enablePermanentUserData: false,
 };
@@ -76,32 +74,33 @@ const LiveblocksCollab = Collaboration.extend({
   },
 });
 
-/**
- * Returns whether the editor has loaded the initial text contents from the
- * server and is ready to be used.
- *
- */
-export function useIsEditorReady(): boolean {
-  const yjsProvider = useYjsProvider();
+// Unnecessary for convex BE
+// /**
+//  * Returns whether the editor has loaded the initial text contents from the
+//  * server and is ready to be used.
+//  *
+//  */
+// export function useIsEditorReady(): boolean {
+//   const yjsProvider = useYjsProvider();
 
-  const getSnapshot = useCallback(() => {
-    const status = yjsProvider?.getStatus();
-    return status === "synchronizing" || status === "synchronized";
-  }, [yjsProvider]);
+//   const getSnapshot = useCallback(() => {
+//     const status = yjsProvider?.getStatus();
+//     return status === "synchronizing" || status === "synchronized";
+//   }, [yjsProvider]);
 
-  const subscribe = useCallback(
-    (callback: () => void) => {
-      if (yjsProvider === undefined) return () => {};
-      yjsProvider.on("status", callback);
-      return () => {
-        yjsProvider.off("status", callback);
-      };
-    },
-    [yjsProvider]
-  );
+//   const subscribe = useCallback(
+//     (callback: () => void) => {
+//       if (yjsProvider === undefined) return () => {};
+//       yjsProvider.on("status", callback);
+//       return () => {
+//         yjsProvider.off("status", callback);
+//       };
+//     },
+//     [yjsProvider]
+//   );
 
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
+//   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+// }
 
 const YChangeMark = Mark.create({
   name: "ychange",
@@ -157,12 +156,15 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
     ...DEFAULT_OPTIONS,
     ...opts,
   };
-  const textEditorType = useInitial<TextEditorType>(
-    options.textEditorType ?? TextEditorType.TipTap
-  );
+  // Not needed for Convex BE
+  // const textEditorType = useInitial<TextEditorType>(
+  //   options.textEditorType ?? TextEditorType.TipTap
+  // );
   const editor = useRef<Editor | null>(null);
-  const room = useRoom();
+  // Not needed for Convex BE
+  // const room = useRoom();
 
+  // Not needed for Convex BE
   // TODO: we don't need these things if comments isn't turned on...
   // TODO: we don't have a reference to the editor here, need to figure this out
   // useErrorListener((error) => {
@@ -175,35 +177,36 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
   //   }
   // });
 
-  const isEditorReady = useIsEditorReady();
-  const yjsProvider = useYjsProvider();
+  // const isEditorReady = useIsEditorReady();
+  // const yjsProvider = useYjsProvider();
 
   // If the user provided initialContent, wait for ready and then set it
-  useEffect(() => {
-    if (
-      !isEditorReady ||
-      !yjsProvider ||
-      !options.initialContent ||
-      !editor.current
-    )
-      return;
+  // useEffect(() => {
+  //   if (
+  //     !isEditorReady ||
+  //     !yjsProvider ||
+  //     !options.initialContent ||
+  //     !editor.current
+  //   )
+  //     return;
 
-    // As noted in the tiptap documentation, you may not set initial content with collaboration.
-    // The docs provide the following workaround:
-    const ydoc = (yjsProvider as LiveblocksYjsProvider).getYDoc();
-    const hasContentSet = ydoc.getMap("liveblocks_config").get("hasContentSet");
-    if (!hasContentSet) {
-      ydoc.getMap("liveblocks_config").set("hasContentSet", true);
-      editor.current.commands.setContent(options.initialContent);
-    }
-  }, [isEditorReady, yjsProvider, options.initialContent]);
+  //   // As noted in the tiptap documentation, you may not set initial content with collaboration.
+  //   // The docs provide the following workaround:
+  //   const ydoc = (yjsProvider as LiveblocksYjsProvider).getYDoc();
+  //   const hasContentSet = ydoc.getMap("liveblocks_config").get("hasContentSet");
+  //   if (!hasContentSet) {
+  //     ydoc.getMap("liveblocks_config").set("hasContentSet", true);
+  //     editor.current.commands.setContent(options.initialContent);
+  //   }
+  // }, [isEditorReady, yjsProvider, options.initialContent]);
 
-  useReportTextEditor(textEditorType, options.field ?? DEFAULT_OPTIONS.field);
+  // useReportTextEditor(textEditorType, options.field ?? DEFAULT_OPTIONS.field);
 
   const prevThreadsRef = useRef<Set<string> | undefined>(undefined);
 
   useEffect(() => {
-    if (!isEditorReady) return;
+    // Not needed for Convex BE
+    // if (!isEditorReady) return;
 
     if (!editor.current) return;
 
@@ -229,10 +232,12 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
         })
       );
     }
-  }, [isEditorReady, options.threads_experimental]);
+    // }, [isEditorReady, options.threads_experimental]);
+  }, [options.threads_experimental]);
 
-  const createTextMention = useCreateTextMention();
-  const deleteTextMention = useDeleteTextMention();
+  // TODO: to be refactored for Convex BE
+  // const createTextMention = useCreateTextMention();
+  // const deleteTextMention = useDeleteTextMention();
 
   // Tiptap has options default as any, in tiptap2, we could use never, but now we must use any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -246,16 +251,61 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
           "[Liveblocks] Initial content must be set in the useLiveblocksExtension hook option. Remove content from your editor options."
         );
       }
-      if (
-        options.mentions &&
-        this.editor.extensionManager.extensions.find(
-          (e) => e.name.toLowerCase() === "mention"
-        )
-      ) {
-        console.warn(
-          "[Liveblocks] Liveblocks own mention plugin is enabled, using another mention plugin may cause a conflict."
-        );
+
+      if (options.initialContent) {
+        const provider = options.yjsProvider;
+        if (!provider) {
+          throw new Error("yjsProvider is required for useLiveblocksExtension");
+        }
+        const ydoc = provider.getYDoc();
+        const field = options.field ?? DEFAULT_OPTIONS.field;
+
+        const tryApplyInitialContent = () => {
+          const status = provider.getStatus();
+          const isReady =
+            status === "synchronizing" || status === "synchronized";
+          if (!isReady) return false;
+
+          const config = ydoc.getMap("liveblocks_config");
+          const hasContentSet = config.get("hasContentSet");
+          if (hasContentSet) return true;
+
+          config.set("hasContentSet", true);
+
+          // Avoid overwriting documents that already have content but
+          // the flag was not set.
+          const fragment = ydoc.getXmlFragment(field);
+          if (fragment.length > 0) {
+            return true;
+          }
+
+          this.editor.commands.setContent(options.initialContent!);
+          return true;
+        };
+
+        if (!tryApplyInitialContent()) {
+          const onStatus = () => {
+            if (tryApplyInitialContent()) {
+              provider.off("status", onStatus);
+            }
+          };
+          provider.on("status", onStatus);
+          this.storage.unsubs.push(() => {
+            provider.off("status", onStatus);
+          });
+        }
       }
+      // TODO: to be refactored for Convex BE
+      // if (
+      //   options.mentions &&
+      //   this.editor.extensionManager.extensions.find(
+      //     (e) => e.name.toLowerCase() === "mention"
+      //   )
+      // ) {
+      //   console.warn(
+      //     "[Liveblocks] Liveblocks own mention plugin is enabled, using another mention plugin may cause a conflict."
+      //   );
+      // }
 
       if (!options.presenceStore) {
         throw new Error("presenceStore is required for useLiveblocksExtension");
@@ -358,21 +408,18 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
       if (!options.presenceStore) {
         throw new Error("presenceStore is required for useLiveblocksExtension");
       }
+      if (!options.yjsProvider) {
+        throw new Error("yjsProvider is required for useLiveblocksExtension");
+      }
 
-      const providerOptions: Parameters<typeof getYjsProviderForRoom>[1] = {
-        enablePermanentUserData:
-          !!options.ai || options.enablePermanentUserData,
-        offlineSupport_experimental: options.offlineSupport_experimental,
-        presenceStore: options.presenceStore,
-      };
-
-      const provider = getYjsProviderForRoom(room, providerOptions);
+      const { yjsProvider } = options;
+      const yDoc = options.yjsProvider.getYDoc();
 
       return {
-        doc: provider.getYDoc(),
-        provider,
-        permanentUserData: provider.permanentUserData,
-        unsubs: [],
+        doc: yDoc,
+        provider: yjsProvider,
+        permanentUserData: yjsProvider.permanentUserData,
+        unsubs: [() => yjsProvider.destroy()],
       };
     },
     addExtensions() {
@@ -409,32 +456,39 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
         }) as Extension<CollaborationCaretOptions>,
       ];
 
-      if (options.mentions) {
-        extensions.push(
-          MentionExtension.configure({
-            onCreateMention: (mention) => {
-              createTextMention(mention.notificationId, mention);
-            },
-            onDeleteMention: deleteTextMention,
-          })
-        );
-      }
+      // TODO: to be refactored for Convex BE
+      // if (options.mentions) {
+      //   extensions.push(
+      //     MentionExtension.configure({
+      //       onCreateMention: (mention) => {
+      //         createTextMention(mention.notificationId, mention);
+      //       },
+      //       onDeleteMention: deleteTextMention,
+      //     })
+      //   );
+      // }
       if (options.ai) {
+        const aiConfig = options.ai;
         const resolveContextualPrompt = async ({
           prompt,
           context,
           previous,
           signal,
         }: ResolveContextualPromptArgs): Promise<ResolveContextualPromptResponse> => {
-          const result = await room[kInternal].executeContextualPrompt({
-            prompt,
-            context,
-            previous,
-            signal,
-          });
-
-          // This response is validated afterwards by AiExtension itself
-          return JSON.parse(result) as ResolveContextualPromptResponse;
+          if (
+            typeof aiConfig !== "boolean" &&
+            aiConfig.resolveContextualPrompt
+          ) {
+            return aiConfig.resolveContextualPrompt({
+              prompt,
+              context,
+              previous,
+              signal,
+            });
+          }
+          throw new Error(
+            "resolveContextualPrompt is required when ai is enabled"
+          );
         };
 
         extensions.push(

@@ -1,33 +1,211 @@
 import {
   DerivedSignal,
   type IYjsProvider,
-  type OpaqueRoom,
   type YjsSyncStatus,
 } from "@liveblocks/core";
-import { ClientMsgCode, kInternal, MutableSignal } from "@liveblocks/core";
+import { MutableSignal } from "@liveblocks/core";
 import { Base64 } from "js-base64";
 import { Observable } from "lib0/observable";
 import { IndexeddbPersistence } from "y-indexeddb";
-import type { Doc } from "yjs";
-import { PermanentUserData } from "yjs";
+import { Doc } from "yjs";
+import { PermanentUserData, mergeUpdates } from "yjs";
 
 import { Awareness } from "./awareness";
 import yDocHandler from "./doc";
-import type { pages_PresenceStore } from "../app_lb_bridge.ts";
+import {
+  app_convex,
+  app_convex_api,
+  pages_u8_to_array_buffer,
+  type app_convex_FunctionReturnType,
+  type app_convex_Watch,
+  type pages_PresenceStore,
+  type pages_YjsTailUpdates,
+} from "../app_lb_bridge.ts";
 
 export type ProviderOptions = {
   enablePermanentUserData?: boolean;
-  autoloadSubdocs?: boolean;
-  offlineSupport_experimental?: boolean;
-  useV2Encoding_experimental?: boolean;
   presenceStore?: pages_PresenceStore;
 };
+
+type StreamStateKey = "__root" | (string & {});
+
+function pages_convex_stream_key(guid: string | undefined): StreamStateKey {
+  return guid ?? "__root";
+}
+
+type PagesConvexTailUpdates = app_convex_FunctionReturnType<
+  typeof app_convex_api.yjs_sync.tail_updates
+>;
+
+type PagesConvexYjsStream_Args = {
+  roomId: string;
+  guid?: string;
+  presenceStore: pages_PresenceStore;
+  onMissingUpdatePacket: () => void;
+  onGoodUpdatePacket: (
+    packet: PagesConvexTailUpdates["updates"][number]
+  ) => void;
+  onAckUpdatePacket: (
+    packet: PagesConvexTailUpdates["updates"][number]
+  ) => void;
+  onSync: (
+    result: app_convex_FunctionReturnType<
+      typeof app_convex_api.yjs_sync.fetch_doc
+    >
+  ) => void;
+};
+
+class PagesConvexYjsStream {
+  roomId: PagesConvexYjsStream_Args["roomId"];
+  guid: NonNullable<PagesConvexYjsStream_Args["guid"]> | null;
+  state: {
+    appliedSeq: number;
+    ready: boolean;
+    lastTail: pages_YjsTailUpdates | null;
+  };
+  presenceStore: pages_PresenceStore;
+
+  private onMissingUpdatePacket: PagesConvexYjsStream_Args["onMissingUpdatePacket"];
+  private onRemoteUpdatePacket: PagesConvexYjsStream_Args["onGoodUpdatePacket"];
+  private onAckUpdatePacket: PagesConvexYjsStream_Args["onAckUpdatePacket"];
+  private onSync: PagesConvexYjsStream_Args["onSync"];
+
+  private watcher: app_convex_Watch<PagesConvexTailUpdates>;
+  private unsubscribe: () => void;
+  private disposed = false;
+
+  private pendingOutgoingUpdates: Uint8Array[] = [];
+  private outgoingUpdatesDebounceTimer: ReturnType<typeof setTimeout> | null =
+    null;
+
+  constructor(args: PagesConvexYjsStream_Args) {
+    this.roomId = args.roomId;
+    this.guid = args.guid ?? null;
+    this.state = {
+      appliedSeq: 0,
+      ready: false,
+      lastTail: null,
+    };
+    this.presenceStore = args.presenceStore;
+
+    this.onMissingUpdatePacket = args.onMissingUpdatePacket;
+    this.onRemoteUpdatePacket = args.onGoodUpdatePacket;
+    this.onAckUpdatePacket = args.onAckUpdatePacket;
+    this.onSync = args.onSync;
+
+    this.watcher = app_convex.watchQuery(app_convex_api.yjs_sync.tail_updates, {
+      roomId: args.roomId,
+      guid: args.guid ?? null,
+      limit: 256,
+    });
+
+    this.unsubscribe = this.watcher.onUpdate(() => {
+      if (this.disposed) return;
+      const updateData = this.watcher.localQueryResult();
+      if (!updateData) return;
+      this.state.lastTail = updateData;
+      this.handleTailUpdates(updateData);
+    });
+  }
+
+  private handleTailUpdates(tailUpdates: PagesConvexTailUpdates) {
+    if (this.disposed) return;
+    if (!this.state.ready) return;
+
+    let appliedSeq = this.state.appliedSeq;
+
+    for (const updatePacket of tailUpdates.updates) {
+      if (updatePacket.seq <= appliedSeq) continue;
+
+      if (appliedSeq !== 0 && updatePacket.seq !== appliedSeq + 1) {
+        this.onMissingUpdatePacket();
+        return;
+      }
+
+      // Local packets are "ack-only": applying them again would be redundant,
+      // but we still need their snapshotHash to update sync status and their
+      // seq to keep stream ordering consistent.
+      if (updatePacket.sessionId === this.presenceStore.localSessionId) {
+        this.onAckUpdatePacket(updatePacket);
+      } else {
+        this.onRemoteUpdatePacket(updatePacket);
+      }
+
+      appliedSeq = updatePacket.seq;
+    }
+
+    this.state.appliedSeq = appliedSeq;
+  }
+
+  private flushUpdates() {
+    if (this.disposed) return;
+    if (this.pendingOutgoingUpdates.length === 0) return;
+
+    const merged = mergeUpdates(this.pendingOutgoingUpdates);
+    this.pendingOutgoingUpdates = [];
+
+    if (merged.byteLength === 0) return;
+
+    app_convex
+      .mutation(app_convex_api.yjs_sync.submit_update, {
+        roomId: this.roomId,
+        guid: this.guid,
+        update: pages_u8_to_array_buffer(merged),
+        sessionId: this.presenceStore.localSessionId,
+      })
+      .catch((err) => {
+        console.warn("[ConvexYjsSync] submit_update failed", err);
+      });
+  }
+
+  enqueueUpdate(update: Uint8Array) {
+    if (this.disposed) return;
+    this.pendingOutgoingUpdates.push(update);
+
+    if (!this.outgoingUpdatesDebounceTimer) {
+      this.outgoingUpdatesDebounceTimer = setTimeout(() => {
+        this.outgoingUpdatesDebounceTimer = null;
+        this.flushUpdates();
+      }, 100);
+    }
+  }
+
+  async sync(currentVector: string) {
+    if (this.disposed) return;
+    const vectorBytes = Base64.toUint8Array(currentVector);
+
+    const result = await app_convex.query(app_convex_api.yjs_sync.fetch_doc, {
+      roomId: this.roomId,
+      guid: this.guid,
+      clientStateVector: pages_u8_to_array_buffer(vectorBytes),
+    });
+
+    if (this.disposed) return;
+    this.onSync(result);
+    this.state.ready = true;
+    this.state.appliedSeq = result.latestSeq;
+    if (this.state.lastTail) {
+      this.handleTailUpdates(this.state.lastTail);
+    }
+  }
+
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.outgoingUpdatesDebounceTimer) {
+      clearTimeout(this.outgoingUpdatesDebounceTimer);
+      this.outgoingUpdatesDebounceTimer = null;
+    }
+    this.pendingOutgoingUpdates = [];
+    this.unsubscribe();
+  }
+}
 
 export class LiveblocksYjsProvider
   extends Observable<unknown>
   implements IYjsProvider
 {
-  private readonly room: OpaqueRoom;
+  private readonly roomId: string;
   private readonly rootDoc: Doc;
   private readonly options: ProviderOptions;
   private indexeddbProvider: IndexeddbPersistence | null = null;
@@ -45,25 +223,28 @@ export class LiveblocksYjsProvider
 
   public readonly permanentUserData?: PermanentUserData;
 
-  constructor(room: OpaqueRoom, doc: Doc, options: ProviderOptions = {}) {
+  private readonly convexStreams = new Map<
+    StreamStateKey,
+    PagesConvexYjsStream
+  >();
+
+  constructor(roomId: string, options: ProviderOptions = {}) {
     super();
-    this.rootDoc = doc;
-    this.room = room;
+    this.rootDoc = new Doc();
+    this.roomId = roomId;
     this.options = options;
+
     this.rootDocHandler = new yDocHandler({
-      doc,
+      doc: this.rootDoc,
       isRoot: true,
       updateDoc: this.updateDoc,
       fetchDoc: this.fetchDoc,
-      useV2Encoding: this.options.useV2Encoding_experimental ?? false,
+      useV2Encoding: false,
     });
 
     if (this.options.enablePermanentUserData) {
-      this.permanentUserData = new PermanentUserData(doc);
+      this.permanentUserData = new PermanentUserData(this.rootDoc);
     }
-
-    // TODO: Display a warning if a YjsProvider is already attached to the room
-    room[kInternal].setYjsProvider(this);
 
     // Construct Convex-backed awareness
     if (!this.options.presenceStore) {
@@ -74,58 +255,6 @@ export class LiveblocksYjsProvider
 
     this.awareness = new Awareness(this.rootDoc, this.options.presenceStore);
 
-    this.unsubscribers.push(
-      this.room.events.status.subscribe((status) => {
-        if (status === "connected") {
-          this.rootDocHandler.syncDoc();
-        } else {
-          this.rootDocHandler.synced = false;
-        }
-      })
-    );
-
-    this.unsubscribers.push(
-      this.room.events.ydoc.subscribe((message) => {
-        const { type } = message;
-        if (type === ClientMsgCode.UPDATE_YDOC) {
-          // don't apply updates that came from the client
-          return;
-        }
-        const {
-          stateVector,
-          update: updateStr,
-          guid,
-          v2,
-          remoteSnapshotHash,
-        } = message;
-        const canWrite = this.room.getSelf()?.canWrite ?? true;
-        const update = Base64.toUint8Array(updateStr);
-
-        // find the right doc and update
-        if (guid !== undefined) {
-          this.subdocHandlersΣ.get().get(guid)?.handleServerUpdate({
-            update,
-            stateVector,
-            readOnly: !canWrite,
-            v2,
-            remoteSnapshotHash,
-          });
-        } else {
-          this.rootDocHandler.handleServerUpdate({
-            update,
-            stateVector,
-            readOnly: !canWrite,
-            v2,
-            remoteSnapshotHash,
-          });
-        }
-      })
-    );
-
-    if (options.offlineSupport_experimental) {
-      this.setupOfflineSupport();
-    }
-
     // different consumers listen to sync and synced
     this.rootDocHandler.on("synced", () => {
       const state = this.rootDocHandler.synced;
@@ -135,8 +264,14 @@ export class LiveblocksYjsProvider
       this.emit("synced", [state]);
       this.emit("sync", [state]);
     });
-    this.rootDoc.on("subdocs", this.handleSubdocs);
     this.syncDoc();
+
+    if (this.options.presenceStore) {
+      this.ensureConvexStream({
+        yDocHandler: this.rootDocHandler,
+        presenceStore: this.options.presenceStore,
+      });
+    }
 
     this.syncStatusΣ = DerivedSignal.from(() => {
       // If the root document is loading or synchronizing, we infer that the overall status is also loading or synchronizing.
@@ -168,78 +303,105 @@ export class LiveblocksYjsProvider
     );
   }
 
-  private setupOfflineSupport = () => {
-    this.indexeddbProvider = new IndexeddbPersistence(
-      this.room.id,
-      this.rootDoc
-    );
-    const onIndexedDbSync = () => {
-      this.rootDocHandler.synced = true;
-    };
-    this.indexeddbProvider.on("synced", onIndexedDbSync);
-
-    this.unsubscribers.push(() => {
-      this.indexeddbProvider?.off("synced", onIndexedDbSync);
-    });
-  };
-
-  private handleSubdocs = ({
-    loaded,
-    removed,
-    added,
-  }: {
-    loaded: Set<Doc>;
-    removed: Set<Doc>;
-    added: Set<Doc>;
-  }) => {
-    loaded.forEach(this.createSubdocHandler);
-    const subdocHandlers = this.subdocHandlersΣ.get();
-    if (this.options.autoloadSubdocs) {
-      for (const subdoc of added) {
-        if (!subdocHandlers.has(subdoc.guid)) {
-          subdoc.load();
-        }
-      }
-    }
-    for (const subdoc of removed) {
-      if (subdocHandlers.has(subdoc.guid)) {
-        subdocHandlers.get(subdoc.guid)?.destroy();
-        subdocHandlers.delete(subdoc.guid);
-      }
-    }
-  };
-
   private updateDoc = (update: Uint8Array, guid?: string) => {
-    const canWrite = this.room.getSelf()?.canWrite ?? true;
-    if (canWrite && !this.isPaused) {
-      this.room.updateYDoc(
-        Base64.fromUint8Array(update),
+    const canWrite = true;
+    if (!canWrite || this.isPaused) return;
+    if (update.byteLength === 0) return;
+
+    const yDocHandler =
+      guid === undefined
+        ? this.rootDocHandler
+        : this.subdocHandlersΣ.get().get(guid);
+
+    if (yDocHandler && this.options.presenceStore) {
+      const stream = this.ensureConvexStream({
+        yDocHandler,
+        presenceStore: this.options.presenceStore,
         guid,
-        this.useV2Encoding
-      );
+      });
+      stream.enqueueUpdate(update);
     }
   };
 
   private fetchDoc = (vector: string, guid?: string) => {
-    this.room.fetchYDoc(vector, guid, this.useV2Encoding);
+    const yDocHandler =
+      guid === undefined
+        ? this.rootDocHandler
+        : this.subdocHandlersΣ.get().get(guid);
+
+    if (yDocHandler && this.options.presenceStore) {
+      const streamState = this.ensureConvexStream({
+        yDocHandler,
+        presenceStore: this.options.presenceStore,
+        guid,
+      });
+      streamState.sync(vector);
+    }
   };
 
-  private createSubdocHandler = (subdoc: Doc): void => {
-    const subdocHandlers = this.subdocHandlersΣ.get();
-    if (subdocHandlers.has(subdoc.guid)) {
-      // if we already handle this subdoc, just fetch it again
-      subdocHandlers.get(subdoc.guid)?.syncDoc();
-      return;
+  private ensureConvexStream(args: {
+    yDocHandler: yDocHandler;
+    presenceStore: pages_PresenceStore;
+    guid?: string;
+  }) {
+    const key = pages_convex_stream_key(args.guid);
+    let stream = this.convexStreams.get(key);
+    if (stream) {
+      return stream;
     }
-    const handler = new yDocHandler({
-      doc: subdoc,
-      isRoot: false,
-      updateDoc: this.updateDoc,
-      fetchDoc: this.fetchDoc,
-      useV2Encoding: this.options.useV2Encoding_experimental ?? false,
+
+    // TODO: add permissions to room user state
+    const canWrite = true;
+
+    stream = new PagesConvexYjsStream({
+      roomId: this.roomId,
+      guid: args.guid,
+      presenceStore: args.presenceStore,
+      onMissingUpdatePacket: () => {
+        args.yDocHandler.syncDoc();
+      },
+      onGoodUpdatePacket: (updateItem) => {
+        args.yDocHandler.handleServerUpdate({
+          update: new Uint8Array(updateItem.update),
+          stateVector: null,
+          readOnly: !canWrite,
+          v2: false,
+          remoteSnapshotHash: updateItem.snapshotHash,
+        });
+      },
+      onAckUpdatePacket: (updateItem) => {
+        // Do not re-apply local updates (already applied optimistically).
+        // Still update remote snapshot hash so sync status can converge to
+        // "synchronized" and keep seq ordering consistent.
+        args.yDocHandler.handleServerUpdate({
+          update: new Uint8Array(0),
+          stateVector: null,
+          readOnly: !canWrite,
+          v2: false,
+          remoteSnapshotHash: updateItem.snapshotHash,
+        });
+      },
+      onSync: (result) => {
+        args.yDocHandler.handleServerUpdate({
+          update: new Uint8Array(result.update),
+          stateVector: Base64.fromUint8Array(
+            new Uint8Array(result.serverStateVector)
+          ),
+          readOnly: !canWrite,
+          v2: false,
+          remoteSnapshotHash: result.remoteSnapshotHash,
+        });
+      },
     });
-    subdocHandlers.set(subdoc.guid, handler);
-  };
+
+    this.convexStreams.set(key, stream);
+
+    this.unsubscribers.push(() => {
+      stream.dispose();
+    });
+
+    return stream;
+  }
 
   // attempt to load a subdoc of a given guid
   public loadSubdoc = (guid: string): boolean => {
@@ -260,10 +422,6 @@ export class LiveblocksYjsProvider
     }
   };
 
-  get useV2Encoding(): boolean {
-    return this.options.useV2Encoding_experimental ?? false;
-  }
-
   // The sync'd property is required by some provider implementations
   get synced(): boolean {
     return this.rootDocHandler.synced;
@@ -277,9 +435,6 @@ export class LiveblocksYjsProvider
 
   unpause(): void {
     this.isPaused = false;
-    if (this.options.offlineSupport_experimental) {
-      this.setupOfflineSupport();
-    }
     this.rootDocHandler.syncDoc();
   }
 
