@@ -24,7 +24,9 @@ import {
 
 export type ProviderOptions = {
   enablePermanentUserData?: boolean;
-  presenceStore?: pages_PresenceStore;
+  presenceStore: pages_PresenceStore;
+  workspaceId: string;
+  projectId: string;
 };
 
 type StreamStateKey = "__root" | (string & {});
@@ -33,13 +35,14 @@ function pages_convex_stream_key(guid: string | undefined): StreamStateKey {
   return guid ?? "__root";
 }
 
-type PagesConvexTailUpdates = app_convex_FunctionReturnType<
-  typeof app_convex_api.yjs_sync.tail_updates
+type PagesConvexTailUpdates = NonNullable<
+  app_convex_FunctionReturnType<typeof app_convex_api.yjs_sync.tail_updates>
 >;
 
 type PagesConvexYjsStream_Args = {
-  roomId: string;
-  guid?: string;
+  pageId: string;
+  workspaceId: string;
+  projectId: string;
   presenceStore: pages_PresenceStore;
   onMissingUpdatePacket: () => void;
   onGoodUpdatePacket: (
@@ -49,28 +52,28 @@ type PagesConvexYjsStream_Args = {
     packet: PagesConvexTailUpdates["updates"][number]
   ) => void;
   onSync: (
-    result: app_convex_FunctionReturnType<
-      typeof app_convex_api.yjs_sync.fetch_doc
+    result: NonNullable<
+      app_convex_FunctionReturnType<typeof app_convex_api.yjs_sync.fetch_doc>
     >
   ) => void;
 };
 
 class PagesConvexYjsStream {
-  roomId: PagesConvexYjsStream_Args["roomId"];
-  guid: NonNullable<PagesConvexYjsStream_Args["guid"]> | null;
+  args: PagesConvexYjsStream_Args;
   state: {
     appliedSeq: number;
     ready: boolean;
     lastTail: pages_YjsTailUpdates | null;
   };
-  presenceStore: pages_PresenceStore;
 
   private onMissingUpdatePacket: PagesConvexYjsStream_Args["onMissingUpdatePacket"];
   private onRemoteUpdatePacket: PagesConvexYjsStream_Args["onGoodUpdatePacket"];
   private onAckUpdatePacket: PagesConvexYjsStream_Args["onAckUpdatePacket"];
   private onSync: PagesConvexYjsStream_Args["onSync"];
 
-  private watcher: app_convex_Watch<PagesConvexTailUpdates>;
+  private watcher: app_convex_Watch<
+    app_convex_FunctionReturnType<typeof app_convex_api.yjs_sync.tail_updates>
+  >;
   private unsubscribe: () => void;
   private disposed = false;
 
@@ -79,14 +82,12 @@ class PagesConvexYjsStream {
     null;
 
   constructor(args: PagesConvexYjsStream_Args) {
-    this.roomId = args.roomId;
-    this.guid = args.guid ?? null;
+    this.args = args;
     this.state = {
       appliedSeq: 0,
       ready: false,
       lastTail: null,
     };
-    this.presenceStore = args.presenceStore;
 
     this.onMissingUpdatePacket = args.onMissingUpdatePacket;
     this.onRemoteUpdatePacket = args.onGoodUpdatePacket;
@@ -94,9 +95,9 @@ class PagesConvexYjsStream {
     this.onSync = args.onSync;
 
     this.watcher = app_convex.watchQuery(app_convex_api.yjs_sync.tail_updates, {
-      roomId: args.roomId,
-      guid: args.guid ?? null,
-      limit: 256,
+      pageId: args.pageId,
+      // TODO: to be tweaked based on how often we take snapshots, for now snapshots are create at every update
+      limit: 10,
     });
 
     this.unsubscribe = this.watcher.onUpdate(() => {
@@ -122,12 +123,21 @@ class PagesConvexYjsStream {
         return;
       }
 
-      // Local packets are "ack-only": applying them again would be redundant,
-      // but we still need their snapshotHash to update sync status and their
-      // seq to keep stream ordering consistent.
-      if (updatePacket.sessionId === this.presenceStore.localSessionId) {
+      // Only USER_EDIT with matching sessionId are treated as local (ack-only).
+      // All other origins (USER_SNAPSHOT_RESTORE, USER_AI_EDIT, or USER_EDIT with different sessionId)
+      // are treated as remote changes and applied to the document.
+      const isLocalEdit =
+        updatePacket.origin.type === "USER_EDIT" &&
+        updatePacket.origin.session_id ===
+          this.args.presenceStore.localSessionId;
+
+      if (isLocalEdit) {
+        // Local packets are "ack-only": applying them again would be redundant,
+        // but we still need their snapshotHash to update sync status and their
+        // seq to keep stream ordering consistent.
         this.onAckUpdatePacket(updatePacket);
       } else {
+        // Remote changes: apply to the document
         this.onRemoteUpdatePacket(updatePacket);
       }
 
@@ -148,10 +158,9 @@ class PagesConvexYjsStream {
 
     app_convex
       .mutation(app_convex_api.yjs_sync.submit_update, {
-        roomId: this.roomId,
-        guid: this.guid,
+        pageId: this.args.pageId,
         update: pages_u8_to_array_buffer(merged),
-        sessionId: this.presenceStore.localSessionId,
+        sessionId: this.args.presenceStore.localSessionId,
       })
       .catch((err) => {
         console.warn("[ConvexYjsSync] submit_update failed", err);
@@ -175,10 +184,14 @@ class PagesConvexYjsStream {
     const vectorBytes = Base64.toUint8Array(currentVector);
 
     const result = await app_convex.query(app_convex_api.yjs_sync.fetch_doc, {
-      roomId: this.roomId,
-      guid: this.guid,
+      pageId: this.args.pageId,
       clientStateVector: pages_u8_to_array_buffer(vectorBytes),
     });
+
+    if (!result) {
+      console.error("[ConvexYjsSync] fetch_doc returned null");
+      return;
+    }
 
     if (this.disposed) return;
     this.onSync(result);
@@ -205,7 +218,7 @@ export class LiveblocksYjsProvider
   extends Observable<unknown>
   implements IYjsProvider
 {
-  private readonly roomId: string;
+  private readonly pageId: string;
   private readonly rootDoc: Doc;
   private readonly options: ProviderOptions;
   private indexeddbProvider: IndexeddbPersistence | null = null;
@@ -228,10 +241,11 @@ export class LiveblocksYjsProvider
     PagesConvexYjsStream
   >();
 
-  constructor(roomId: string, options: ProviderOptions = {}) {
+  constructor(pageId: string, options: ProviderOptions) {
     super();
     this.rootDoc = new Doc();
-    this.roomId = roomId;
+    this.pageId = pageId;
+
     this.options = options;
 
     this.rootDocHandler = new yDocHandler({
@@ -303,40 +317,24 @@ export class LiveblocksYjsProvider
     );
   }
 
-  private updateDoc = (update: Uint8Array, guid?: string) => {
+  private updateDoc = (update: Uint8Array) => {
     const canWrite = true;
     if (!canWrite || this.isPaused) return;
     if (update.byteLength === 0) return;
 
-    const yDocHandler =
-      guid === undefined
-        ? this.rootDocHandler
-        : this.subdocHandlersΣ.get().get(guid);
-
-    if (yDocHandler && this.options.presenceStore) {
-      const stream = this.ensureConvexStream({
-        yDocHandler,
-        presenceStore: this.options.presenceStore,
-        guid,
-      });
-      stream.enqueueUpdate(update);
-    }
+    const stream = this.ensureConvexStream({
+      yDocHandler: this.rootDocHandler,
+      presenceStore: this.options.presenceStore,
+    });
+    stream.enqueueUpdate(update);
   };
 
-  private fetchDoc = (vector: string, guid?: string) => {
-    const yDocHandler =
-      guid === undefined
-        ? this.rootDocHandler
-        : this.subdocHandlersΣ.get().get(guid);
-
-    if (yDocHandler && this.options.presenceStore) {
-      const streamState = this.ensureConvexStream({
-        yDocHandler,
-        presenceStore: this.options.presenceStore,
-        guid,
-      });
-      streamState.sync(vector);
-    }
+  private fetchDoc = (vector: string) => {
+    const stream = this.ensureConvexStream({
+      yDocHandler: this.rootDocHandler,
+      presenceStore: this.options.presenceStore,
+    });
+    stream.sync(vector);
   };
 
   private ensureConvexStream(args: {
@@ -354,8 +352,9 @@ export class LiveblocksYjsProvider
     const canWrite = true;
 
     stream = new PagesConvexYjsStream({
-      roomId: this.roomId,
-      guid: args.guid,
+      pageId: this.pageId,
+      workspaceId: this.options.workspaceId,
+      projectId: this.options.projectId,
       presenceStore: args.presenceStore,
       onMissingUpdatePacket: () => {
         args.yDocHandler.syncDoc();
