@@ -1,9 +1,4 @@
-import {
-  DerivedSignal,
-  Signal as Signal,
-  type YjsSyncStatus,
-} from "@liveblocks/core";
-import { sha256 } from "@noble/hashes/sha2";
+import { Signal as Signal, type YjsSyncStatus } from "@liveblocks/core";
 import { Base64 } from "js-base64";
 import { Observable } from "lib0/observable";
 import { IndexeddbPersistence } from "y-indexeddb";
@@ -17,13 +12,26 @@ export default class yDocHandler extends Observable<unknown> {
   private updateRoomDoc: (update: Uint8Array) => void;
   private fetchRoomDoc: (vector: string) => void;
   private useV2Encoding: boolean;
-  private localSnapshotHashΣ: Signal<string>;
-  private remoteSnapshotHashΣ: Signal<string | null>;
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly DEBOUNCE_INTERVAL_MS = 200;
 
-  private isLocalAndRemoteSnapshotEqualΣ: DerivedSignal<boolean>;
+  /**
+   * Set to true once we've received any server response for the doc.
+   */
+  private remoteReadyΣ: Signal<boolean>;
+
+  /**
+   * Local changes that have been produced by Yjs but not yet flushed to the backend.
+   * (Used for sync status only.)
+   */
+  private hasUnsentLocalChangesΣ: Signal<boolean>;
+
+  /**
+   * Number of outgoing updates flushed to the backend that haven't been acknowledged in the tail stream yet.
+   * (Used for sync status only.)
+   */
+  private pendingOutgoingΣ: Signal<number>;
 
   constructor({
     doc,
@@ -50,27 +58,11 @@ export default class yDocHandler extends Observable<unknown> {
       fetchDoc(vector, isRoot ? undefined : this.doc.guid);
     };
 
+    this.remoteReadyΣ = new Signal<boolean>(false);
+    this.hasUnsentLocalChangesΣ = new Signal<boolean>(false);
+    this.pendingOutgoingΣ = new Signal<number>(0);
+
     this.syncDoc();
-
-    const encodedSnapshot = this.useV2Encoding
-      ? Y.encodeSnapshotV2(Y.snapshot(this.doc))
-      : Y.encodeSnapshot(Y.snapshot(this.doc));
-
-    this.localSnapshotHashΣ = new Signal(
-      Base64.fromUint8Array(sha256(encodedSnapshot))
-    );
-    this.remoteSnapshotHashΣ = new Signal<string | null>(null);
-
-    this.isLocalAndRemoteSnapshotEqualΣ = DerivedSignal.from(() => {
-      const remoteSnapshotHash = this.remoteSnapshotHashΣ.get();
-      if (remoteSnapshotHash === null) return false;
-
-      const localSnapshotHash = this.localSnapshotHashΣ.get();
-      if (localSnapshotHash !== remoteSnapshotHash) {
-        return false;
-      }
-      return true;
-    });
   }
 
   public handleServerUpdate = ({
@@ -78,18 +70,15 @@ export default class yDocHandler extends Observable<unknown> {
     stateVector,
     readOnly,
     v2,
-    remoteSnapshotHash,
   }: {
     update: Uint8Array;
     stateVector: string | null;
     readOnly: boolean;
     v2?: boolean;
-    remoteSnapshotHash: string;
   }): void => {
     // apply update from the server, updates from the server can be v1 or v2
     const applyUpdate = v2 ? Y.applyUpdateV2 : Y.applyUpdate;
     // Ack packets may send an empty update; Yjs will throw if we try to decode it.
-    // We still want to update remoteSnapshotHash below to keep sync status accurate.
     if (update.byteLength > 0) {
       applyUpdate(this.doc, update, "backend");
     }
@@ -116,8 +105,7 @@ export default class yDocHandler extends Observable<unknown> {
       // calling `syncDoc` again will sync up the documents
       this.synced = true;
     }
-
-    this.remoteSnapshotHashΣ.set(remoteSnapshotHash);
+    this.remoteReadyΣ.set(true);
   };
 
   public syncDoc = (): void => {
@@ -142,16 +130,11 @@ export default class yDocHandler extends Observable<unknown> {
     }
   }
 
-  private debounced_updateLocalSnapshot() {
+  private debounced_markLocalChanged() {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
-      // Compute local snapshot and update the local snapshot state
-      const encodedSnapshot = this.useV2Encoding
-        ? Y.encodeSnapshotV2(Y.snapshot(this.doc))
-        : Y.encodeSnapshot(Y.snapshot(this.doc));
-      this.localSnapshotHashΣ.set(
-        Base64.fromUint8Array(sha256(encodedSnapshot))
-      );
+      // No expensive snapshot hashing; just keep a cheap "local changed" marker.
+      this.hasUnsentLocalChangesΣ.set(true);
       this.debounceTimer = null;
     }, yDocHandler.DEBOUNCE_INTERVAL_MS);
   }
@@ -160,7 +143,7 @@ export default class yDocHandler extends Observable<unknown> {
     update: Uint8Array,
     origin: string | IndexeddbPersistence
   ) => {
-    this.debounced_updateLocalSnapshot();
+    this.debounced_markLocalChanged();
 
     // don't send updates from indexedb, those will get handled by sync
     const isFromLocal = origin instanceof IndexeddbPersistence;
@@ -169,12 +152,28 @@ export default class yDocHandler extends Observable<unknown> {
     }
   };
 
+  /**
+   * Called by the Convex stream right after an outgoing update has been flushed.
+   * This moves us from "unsent local changes" to "pending ack from server".
+   */
+  public notifyOutgoingUpdateSent() {
+    this.hasUnsentLocalChangesΣ.set(false);
+    this.pendingOutgoingΣ.set(this.pendingOutgoingΣ.get() + 1);
+  }
+
+  /**
+   * Called by the Convex stream when it receives the ack-only tail packet for the local session.
+   */
+  public notifyOutgoingUpdateAcked() {
+    const next = Math.max(0, this.pendingOutgoingΣ.get() - 1);
+    this.pendingOutgoingΣ.set(next);
+  }
+
   experimental_getSyncStatus(): YjsSyncStatus {
-    const remoteSnapshotHash = this.remoteSnapshotHashΣ.get();
-    if (remoteSnapshotHash === null) {
+    if (!this.remoteReadyΣ.get()) {
       return "loading";
     }
-    if (!this.isLocalAndRemoteSnapshotEqualΣ.get()) {
+    if (this.hasUnsentLocalChangesΣ.get() || this.pendingOutgoingΣ.get() > 0) {
       return "synchronizing";
     }
     return "synchronized";

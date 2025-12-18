@@ -3,7 +3,6 @@ import {
   type IYjsProvider,
   type YjsSyncStatus,
 } from "@liveblocks/core";
-import { MutableSignal } from "@liveblocks/core";
 import { Base64 } from "js-base64";
 import { Observable } from "lib0/observable";
 import { IndexeddbPersistence } from "y-indexeddb";
@@ -51,6 +50,7 @@ type PagesConvexYjsStream_Args = {
   onAckUpdatePacket: (
     packet: PagesConvexTailUpdates["updates"][number]
   ) => void;
+  onOutgoingUpdateSent: () => void;
   onSync: (
     result: NonNullable<
       app_convex_FunctionReturnType<typeof app_convex_api.yjs_sync.fetch_doc>
@@ -69,6 +69,7 @@ class PagesConvexYjsStream {
   private onMissingUpdatePacket: PagesConvexYjsStream_Args["onMissingUpdatePacket"];
   private onRemoteUpdatePacket: PagesConvexYjsStream_Args["onGoodUpdatePacket"];
   private onAckUpdatePacket: PagesConvexYjsStream_Args["onAckUpdatePacket"];
+  private onOutgoingUpdateSent: PagesConvexYjsStream_Args["onOutgoingUpdateSent"];
   private onSync: PagesConvexYjsStream_Args["onSync"];
 
   private watcher: app_convex_Watch<
@@ -92,6 +93,7 @@ class PagesConvexYjsStream {
     this.onMissingUpdatePacket = args.onMissingUpdatePacket;
     this.onRemoteUpdatePacket = args.onGoodUpdatePacket;
     this.onAckUpdatePacket = args.onAckUpdatePacket;
+    this.onOutgoingUpdateSent = args.onOutgoingUpdateSent;
     this.onSync = args.onSync;
 
     this.watcher = app_convex.watchQuery(app_convex_api.yjs_sync.tail_updates, {
@@ -133,8 +135,8 @@ class PagesConvexYjsStream {
 
       if (isLocalEdit) {
         // Local packets are "ack-only": applying them again would be redundant,
-        // but we still need their snapshotHash to update sync status and their
-        // seq to keep stream ordering consistent.
+        // but we still need the ack to update sync status and keep stream
+        // ordering consistent.
         this.onAckUpdatePacket(updatePacket);
       } else {
         // Remote changes: apply to the document
@@ -155,6 +157,8 @@ class PagesConvexYjsStream {
     this.pendingOutgoingUpdates = [];
 
     if (merged.byteLength === 0) return;
+
+    this.onOutgoingUpdateSent();
 
     app_convex
       .mutation(app_convex_api.yjs_sync.submit_update, {
@@ -229,9 +233,7 @@ export class LiveblocksYjsProvider
   public readonly awareness: Awareness;
 
   public readonly rootDocHandler: yDocHandler;
-  private readonly subdocHandlersΣ = new MutableSignal<
-    Map<string, yDocHandler>
-  >(new Map());
+
   private readonly syncStatusΣ: DerivedSignal<YjsSyncStatus>;
 
   public readonly permanentUserData?: PermanentUserData;
@@ -272,9 +274,7 @@ export class LiveblocksYjsProvider
     // different consumers listen to sync and synced
     this.rootDocHandler.on("synced", () => {
       const state = this.rootDocHandler.synced;
-      for (const [_, handler] of this.subdocHandlersΣ.get()) {
-        handler.syncDoc();
-      }
+
       this.emit("synced", [state]);
       this.emit("sync", [state]);
     });
@@ -288,24 +288,7 @@ export class LiveblocksYjsProvider
     }
 
     this.syncStatusΣ = DerivedSignal.from(() => {
-      // If the root document is loading or synchronizing, we infer that the overall status is also loading or synchronizing.
-      const rootDocumentStatus =
-        this.rootDocHandler.experimental_getSyncStatus();
-      if (
-        rootDocumentStatus === "loading" ||
-        rootDocumentStatus === "synchronizing"
-      ) {
-        return rootDocumentStatus;
-      }
-
-      // If the root document is synchronized, we check if all subdocs are synchronized. If at least one subdoc is not synchronized, we are still synchronizing.
-      const subdocumentStatuses = Array.from(
-        this.subdocHandlersΣ.get().values()
-      ).map((handler) => handler.experimental_getSyncStatus());
-      if (subdocumentStatuses.some((state) => state !== "synchronized")) {
-        return "synchronizing";
-      }
-      return "synchronized";
+      return this.rootDocHandler.experimental_getSyncStatus();
     });
 
     this.emit("status", [this.getStatus()]);
@@ -365,20 +348,22 @@ export class LiveblocksYjsProvider
           stateVector: null,
           readOnly: !canWrite,
           v2: false,
-          remoteSnapshotHash: updateItem.snapshotHash,
         });
       },
-      onAckUpdatePacket: (updateItem) => {
+      onAckUpdatePacket: () => {
         // Do not re-apply local updates (already applied optimistically).
-        // Still update remote snapshot hash so sync status can converge to
-        // "synchronized" and keep seq ordering consistent.
+        // Still use the ack so sync status can converge to "synchronized"
+        // and keep seq ordering consistent.
+        args.yDocHandler.notifyOutgoingUpdateAcked();
         args.yDocHandler.handleServerUpdate({
           update: new Uint8Array(0),
           stateVector: null,
           readOnly: !canWrite,
           v2: false,
-          remoteSnapshotHash: updateItem.snapshotHash,
         });
+      },
+      onOutgoingUpdateSent: () => {
+        args.yDocHandler.notifyOutgoingUpdateSent();
       },
       onSync: (result) => {
         args.yDocHandler.handleServerUpdate({
@@ -388,7 +373,6 @@ export class LiveblocksYjsProvider
           ),
           readOnly: !canWrite,
           v2: false,
-          remoteSnapshotHash: result.remoteSnapshotHash,
         });
       },
     });
@@ -416,9 +400,6 @@ export class LiveblocksYjsProvider
 
   private syncDoc = () => {
     this.rootDocHandler.syncDoc();
-    for (const [_, handler] of this.subdocHandlersΣ.get()) {
-      handler.syncDoc();
-    }
   };
 
   // The sync'd property is required by some provider implementations
@@ -446,10 +427,6 @@ export class LiveblocksYjsProvider
     this.awareness.destroy();
     this.rootDocHandler.destroy();
     this._observers = new Map();
-    for (const [_, handler] of this.subdocHandlersΣ.get()) {
-      handler.destroy();
-    }
-    this.subdocHandlersΣ.get().clear();
     super.destroy();
   }
 
@@ -469,18 +446,5 @@ export class LiveblocksYjsProvider
 
   connect(): void {
     // This is a noop for liveblocks as connections are managed by the room
-  }
-
-  get subdocHandlers(): Map<string, yDocHandler> {
-    return this.subdocHandlersΣ.get();
-  }
-
-  set subdocHandlers(value: Map<string, yDocHandler>) {
-    this.subdocHandlersΣ.mutate((map) => {
-      map.clear();
-      for (const [key, handler] of value) {
-        map.set(key, handler);
-      }
-    });
   }
 }
