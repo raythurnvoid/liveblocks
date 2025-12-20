@@ -3,7 +3,9 @@
 	"extends": "../../shared/tsconfig.common.json",
 	"compilerOptions": {
 		"lib": [
-			"dom"
+			"dom",
+			"dom.iterable",
+			"es2024"
 		]
 	},
 	"include": [

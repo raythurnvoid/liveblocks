@@ -3,9 +3,7 @@ import {
   type IYjsProvider,
   type YjsSyncStatus,
 } from "@liveblocks/core";
-import { Base64 } from "js-base64";
 import { Observable } from "lib0/observable";
-import { IndexeddbPersistence } from "y-indexeddb";
 import { Doc } from "yjs";
 import { PermanentUserData, mergeUpdates } from "yjs";
 
@@ -16,17 +14,10 @@ import {
   app_convex_api,
   pages_u8_to_array_buffer,
   type app_convex_FunctionReturnType,
+  type app_convex_Id,
   type app_convex_Watch,
   type pages_PresenceStore,
-  type pages_YjsTailUpdates,
 } from "../app_lb_bridge.ts";
-
-export type ProviderOptions = {
-  enablePermanentUserData?: boolean;
-  presenceStore: pages_PresenceStore;
-  workspaceId: string;
-  projectId: string;
-};
 
 type StreamStateKey = "__root" | (string & {});
 
@@ -34,36 +25,35 @@ function pages_convex_stream_key(guid: string | undefined): StreamStateKey {
   return guid ?? "__root";
 }
 
-type PagesConvexTailUpdates = NonNullable<
-  app_convex_FunctionReturnType<typeof app_convex_api.yjs_sync.tail_updates>
+type PagesConvexIncrementalUpdates = NonNullable<
+  app_convex_FunctionReturnType<
+    typeof app_convex_api.ai_docs_temp.yjs_get_incremental_updates
+  >
 >;
 
 type PagesConvexYjsStream_Args = {
-  pageId: string;
+  pageId: app_convex_Id<"pages">;
   workspaceId: string;
   projectId: string;
   presenceStore: pages_PresenceStore;
   onMissingUpdatePacket: () => void;
   onGoodUpdatePacket: (
-    packet: PagesConvexTailUpdates["updates"][number]
+    packet: PagesConvexIncrementalUpdates["updates"][number]
   ) => void;
   onAckUpdatePacket: (
-    packet: PagesConvexTailUpdates["updates"][number]
+    packet: PagesConvexIncrementalUpdates["updates"][number]
   ) => void;
   onOutgoingUpdateSent: () => void;
-  onSync: (
-    result: NonNullable<
-      app_convex_FunctionReturnType<typeof app_convex_api.yjs_sync.fetch_doc>
-    >
-  ) => void;
+  onSync: (currentStateUpdate: Uint8Array) => void;
 };
 
 class PagesConvexYjsStream {
   args: PagesConvexYjsStream_Args;
   state: {
-    appliedSeq: number;
+    syncing: boolean;
     ready: boolean;
-    lastTail: pages_YjsTailUpdates | null;
+    appliedSeq: number;
+    incrementalUpdates: PagesConvexIncrementalUpdates | null;
   };
 
   private onMissingUpdatePacket: PagesConvexYjsStream_Args["onMissingUpdatePacket"];
@@ -73,7 +63,9 @@ class PagesConvexYjsStream {
   private onSync: PagesConvexYjsStream_Args["onSync"];
 
   private watcher: app_convex_Watch<
-    app_convex_FunctionReturnType<typeof app_convex_api.yjs_sync.tail_updates>
+    app_convex_FunctionReturnType<
+      typeof app_convex_api.ai_docs_temp.yjs_get_incremental_updates
+    >
   >;
   private unsubscribe: () => void;
   private disposed = false;
@@ -82,12 +74,18 @@ class PagesConvexYjsStream {
   private outgoingUpdatesDebounceTimer: ReturnType<typeof setTimeout> | null =
     null;
 
+  private incrementalUpdatesFirstValueReceived = Object.assign(
+    Promise.withResolvers(),
+    { initialized: false }
+  );
+
   constructor(args: PagesConvexYjsStream_Args) {
     this.args = args;
     this.state = {
-      appliedSeq: 0,
+      syncing: false,
       ready: false,
-      lastTail: null,
+      appliedSeq: 0,
+      incrementalUpdates: null,
     };
 
     this.onMissingUpdatePacket = args.onMissingUpdatePacket;
@@ -96,31 +94,43 @@ class PagesConvexYjsStream {
     this.onOutgoingUpdateSent = args.onOutgoingUpdateSent;
     this.onSync = args.onSync;
 
-    this.watcher = app_convex.watchQuery(app_convex_api.yjs_sync.tail_updates, {
-      pageId: args.pageId,
-      // TODO: to be tweaked based on how often we take snapshots, for now snapshots are create at every update
-      limit: 10,
-    });
+    this.watcher = app_convex.watchQuery(
+      app_convex_api.ai_docs_temp.yjs_get_incremental_updates,
+      {
+        workspaceId: args.workspaceId,
+        projectId: args.projectId,
+        pageId: args.pageId,
+      }
+    );
 
     this.unsubscribe = this.watcher.onUpdate(() => {
       if (this.disposed) return;
       const updateData = this.watcher.localQueryResult();
+      if (!this.incrementalUpdatesFirstValueReceived.initialized) {
+        this.incrementalUpdatesFirstValueReceived.resolve(updateData);
+        this.incrementalUpdatesFirstValueReceived.initialized = true;
+      }
       if (!updateData) return;
-      this.state.lastTail = updateData;
-      this.handleTailUpdates(updateData);
+      this.state.incrementalUpdates = updateData;
+      this.handleIncrementalUpdates(updateData);
     });
   }
 
-  private handleTailUpdates(tailUpdates: PagesConvexTailUpdates) {
+  private handleIncrementalUpdates(
+    incrementalUpdates: PagesConvexIncrementalUpdates
+  ) {
     if (this.disposed) return;
-    if (!this.state.ready) return;
+    if (!this.state.ready || this.state.syncing) return;
 
     let appliedSeq = this.state.appliedSeq;
 
-    for (const updatePacket of tailUpdates.updates) {
-      if (updatePacket.seq <= appliedSeq) continue;
+    // Loop through updates in ascending order. The BE returns them in descending order.
+    for (let i = incrementalUpdates.updates.length - 1; i >= 0; i--) {
+      const updatePacket = incrementalUpdates.updates[i];
 
-      if (appliedSeq !== 0 && updatePacket.seq !== appliedSeq + 1) {
+      if (!updatePacket || updatePacket.sequence <= appliedSeq) continue;
+
+      if (appliedSeq !== 0 && updatePacket.sequence !== appliedSeq + 1) {
         this.onMissingUpdatePacket();
         return;
       }
@@ -143,7 +153,7 @@ class PagesConvexYjsStream {
         this.onRemoteUpdatePacket(updatePacket);
       }
 
-      appliedSeq = updatePacket.seq;
+      appliedSeq = updatePacket.sequence;
     }
 
     this.state.appliedSeq = appliedSeq;
@@ -161,7 +171,9 @@ class PagesConvexYjsStream {
     this.onOutgoingUpdateSent();
 
     app_convex
-      .mutation(app_convex_api.yjs_sync.submit_update, {
+      .mutation(app_convex_api.ai_docs_temp.yjs_push_update, {
+        workspaceId: this.args.workspaceId,
+        projectId: this.args.projectId,
         pageId: this.args.pageId,
         update: pages_u8_to_array_buffer(merged),
         sessionId: this.args.presenceStore.localSessionId,
@@ -179,30 +191,110 @@ class PagesConvexYjsStream {
       this.outgoingUpdatesDebounceTimer = setTimeout(() => {
         this.outgoingUpdatesDebounceTimer = null;
         this.flushUpdates();
-      }, 100);
+      }, 500);
     }
   }
 
-  async sync(currentVector: string) {
+  async sync() {
     if (this.disposed) return;
-    const vectorBytes = Base64.toUint8Array(currentVector);
+    if (this.state.syncing) return;
 
-    const result = await app_convex.query(app_convex_api.yjs_sync.fetch_doc, {
-      pageId: this.args.pageId,
-      clientStateVector: pages_u8_to_array_buffer(vectorBytes),
-    });
+    this.state.syncing = true;
 
-    if (!result) {
-      console.error("[ConvexYjsSync] fetch_doc returned null");
-      return;
-    }
+    let iteration = 0;
 
-    if (this.disposed) return;
-    this.onSync(result);
-    this.state.ready = true;
-    this.state.appliedSeq = result.latestSeq;
-    if (this.state.lastTail) {
-      this.handleTailUpdates(this.state.lastTail);
+    try {
+      retry: do {
+        iteration++;
+        if (iteration > 10) {
+          console.error(
+            "PagesConvexYjsStream.sync: yjs sync failed after 10 retries",
+            {
+              workspaceId: this.args.workspaceId,
+              projectId: this.args.projectId,
+              pageId: this.args.pageId,
+            }
+          );
+          break;
+        }
+
+        const [result] = await Promise.all([
+          app_convex.query(
+            app_convex_api.ai_docs_temp.yjs_get_doc_last_snapshot,
+            {
+              workspaceId: this.args.workspaceId,
+              projectId: this.args.projectId,
+              pageId: this.args.pageId,
+            }
+          ),
+          this.incrementalUpdatesFirstValueReceived.promise,
+        ]);
+
+        if (!result) {
+          console.error("PagesConvexYjsStream.sync: fetch_doc returned null");
+          break;
+        }
+
+        if (this.disposed) break;
+
+        const snapshotUpdate = new Uint8Array(result.snapshot_update);
+
+        let lastSequence = result.sequence;
+        let updatesAfterSnapshot;
+
+        if (this.state.incrementalUpdates?.updates.length) {
+          updatesAfterSnapshot = [] as Uint8Array[];
+
+          // Loop through updates in ascending order. The BE returns them in descending order.
+          for (
+            let i = this.state.incrementalUpdates.updates.length - 1;
+            i >= 0;
+            i--
+          ) {
+            const updateData = this.state.incrementalUpdates?.updates[i];
+            if (!updateData) continue;
+
+            if (updateData.sequence <= lastSequence) {
+              continue;
+            } // Do not allow to apply updates that are not in sequence
+            else if (updateData.sequence === lastSequence + 1) {
+              // Only USER_EDIT with matching sessionId are treated as local (ack-only).
+              // All other origins (USER_SNAPSHOT_RESTORE, USER_AI_EDIT, or USER_EDIT with different sessionId)
+              // are treated as remote changes and applied to the document.
+              const isLocalEdit =
+                updateData.origin.type === "USER_EDIT" &&
+                updateData.origin.session_id ===
+                  this.args.presenceStore.localSessionId;
+
+              lastSequence = updateData.sequence;
+
+              if (!isLocalEdit) {
+                updatesAfterSnapshot.push(new Uint8Array(updateData.update));
+              }
+            } else {
+              // IF non-consecutive updates are detected, we can refetch the snapshot and try again
+              continue retry;
+            }
+          }
+        }
+
+        const currentStateUpdate = updatesAfterSnapshot
+          ? mergeUpdates([snapshotUpdate, ...updatesAfterSnapshot])
+          : snapshotUpdate;
+
+        // `onSync()` applies `currentStateUpdate` to the Yjs doc synchronously.
+        // There is no possible interleaving *inside* that apply step.
+        // The only interleaving point is earlier in this `sync()` at `await`s: the query watcher
+        // may update `this.state.incrementalUpdates` while we are awaiting the snapshot/query.
+
+        this.onSync(currentStateUpdate);
+        this.state.ready = true;
+        this.state.appliedSeq = lastSequence;
+
+        break;
+      } while (true);
+    } finally {
+      this.state.syncing = false;
     }
   }
 
@@ -218,14 +310,21 @@ class PagesConvexYjsStream {
   }
 }
 
+export type LiveblocksYjsProvider_Args = {
+  pageId: app_convex_Id<"pages">;
+  enablePermanentUserData?: boolean;
+  presenceStore: pages_PresenceStore;
+  workspaceId: string;
+  projectId: string;
+};
+
 export class LiveblocksYjsProvider
   extends Observable<unknown>
   implements IYjsProvider
 {
-  private readonly pageId: string;
+  args: LiveblocksYjsProvider_Args;
+
   private readonly rootDoc: Doc;
-  private readonly options: ProviderOptions;
-  private indexeddbProvider: IndexeddbPersistence | null = null;
   private isPaused = false;
 
   private readonly unsubscribers: Array<() => void> = [];
@@ -243,33 +342,30 @@ export class LiveblocksYjsProvider
     PagesConvexYjsStream
   >();
 
-  constructor(pageId: string, options: ProviderOptions) {
+  constructor(args: LiveblocksYjsProvider_Args) {
     super();
+    this.args = args;
     this.rootDoc = new Doc();
-    this.pageId = pageId;
-
-    this.options = options;
 
     this.rootDocHandler = new yDocHandler({
       doc: this.rootDoc,
       isRoot: true,
       updateDoc: this.updateDoc,
       fetchDoc: this.fetchDoc,
-      useV2Encoding: false,
     });
 
-    if (this.options.enablePermanentUserData) {
+    if (this.args.enablePermanentUserData) {
       this.permanentUserData = new PermanentUserData(this.rootDoc);
     }
 
     // Construct Convex-backed awareness
-    if (!this.options.presenceStore) {
+    if (!this.args.presenceStore) {
       throw new Error(
         "convexPresenceConfig is required for LiveblocksYjsProvider"
       );
     }
 
-    this.awareness = new Awareness(this.rootDoc, this.options.presenceStore);
+    this.awareness = new Awareness(this.rootDoc, this.args.presenceStore);
 
     // different consumers listen to sync and synced
     this.rootDocHandler.on("synced", () => {
@@ -280,10 +376,10 @@ export class LiveblocksYjsProvider
     });
     this.syncDoc();
 
-    if (this.options.presenceStore) {
+    if (this.args.presenceStore) {
       this.ensureConvexStream({
         yDocHandler: this.rootDocHandler,
-        presenceStore: this.options.presenceStore,
+        presenceStore: this.args.presenceStore,
       });
     }
 
@@ -307,17 +403,17 @@ export class LiveblocksYjsProvider
 
     const stream = this.ensureConvexStream({
       yDocHandler: this.rootDocHandler,
-      presenceStore: this.options.presenceStore,
+      presenceStore: this.args.presenceStore,
     });
     stream.enqueueUpdate(update);
   };
 
-  private fetchDoc = (vector: string) => {
+  private fetchDoc = () => {
     const stream = this.ensureConvexStream({
       yDocHandler: this.rootDocHandler,
-      presenceStore: this.options.presenceStore,
+      presenceStore: this.args.presenceStore,
     });
-    stream.sync(vector);
+    stream.sync();
   };
 
   private ensureConvexStream(args: {
@@ -335,9 +431,9 @@ export class LiveblocksYjsProvider
     const canWrite = true;
 
     stream = new PagesConvexYjsStream({
-      pageId: this.pageId,
-      workspaceId: this.options.workspaceId,
-      projectId: this.options.projectId,
+      pageId: this.args.pageId,
+      workspaceId: this.args.workspaceId,
+      projectId: this.args.projectId,
       presenceStore: args.presenceStore,
       onMissingUpdatePacket: () => {
         args.yDocHandler.syncDoc();
@@ -345,9 +441,6 @@ export class LiveblocksYjsProvider
       onGoodUpdatePacket: (updateItem) => {
         args.yDocHandler.handleServerUpdate({
           update: new Uint8Array(updateItem.update),
-          stateVector: null,
-          readOnly: !canWrite,
-          v2: false,
         });
       },
       onAckUpdatePacket: () => {
@@ -355,24 +448,14 @@ export class LiveblocksYjsProvider
         // Still use the ack so sync status can converge to "synchronized"
         // and keep seq ordering consistent.
         args.yDocHandler.notifyOutgoingUpdateAcked();
-        args.yDocHandler.handleServerUpdate({
-          update: new Uint8Array(0),
-          stateVector: null,
-          readOnly: !canWrite,
-          v2: false,
-        });
       },
       onOutgoingUpdateSent: () => {
         args.yDocHandler.notifyOutgoingUpdateSent();
       },
-      onSync: (result) => {
-        args.yDocHandler.handleServerUpdate({
-          update: new Uint8Array(result.update),
-          stateVector: Base64.fromUint8Array(
-            new Uint8Array(result.serverStateVector)
-          ),
-          readOnly: !canWrite,
-          v2: false,
+      onSync: (currentStateUpdate) => {
+        args.yDocHandler.handleDocSync({
+          currentStateUpdate,
+          canWrite: canWrite,
         });
       },
     });
@@ -408,8 +491,6 @@ export class LiveblocksYjsProvider
   }
 
   async pause(): Promise<void> {
-    await this.indexeddbProvider?.destroy();
-    this.indexeddbProvider = null;
     this.isPaused = true;
   }
 
@@ -428,11 +509,6 @@ export class LiveblocksYjsProvider
     this.rootDocHandler.destroy();
     this._observers = new Map();
     super.destroy();
-  }
-
-  async clearOfflineData(): Promise<void> {
-    if (!this.indexeddbProvider) return;
-    return this.indexeddbProvider.clearData();
   }
 
   getYDoc(): Doc {

@@ -1,8 +1,8 @@
 import { Signal as Signal, type YjsSyncStatus } from "@liveblocks/core";
 import { Base64 } from "js-base64";
 import { Observable } from "lib0/observable";
-import { IndexeddbPersistence } from "y-indexeddb";
 import * as Y from "yjs";
+import { pages_u8_equals } from "../app_lb_bridge.ts";
 
 export default class yDocHandler extends Observable<unknown> {
   private unsubscribers: Array<() => void> = [];
@@ -11,7 +11,6 @@ export default class yDocHandler extends Observable<unknown> {
   private doc: Y.Doc;
   private updateRoomDoc: (update: Uint8Array) => void;
   private fetchRoomDoc: (vector: string) => void;
-  private useV2Encoding: boolean;
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly DEBOUNCE_INTERVAL_MS = 200;
@@ -38,19 +37,16 @@ export default class yDocHandler extends Observable<unknown> {
     isRoot,
     updateDoc,
     fetchDoc,
-    useV2Encoding,
   }: {
     doc: Y.Doc;
     isRoot: boolean;
     updateDoc: (update: Uint8Array, guid?: string) => void;
     fetchDoc: (vector: string, guid?: string) => void;
-    useV2Encoding: boolean;
   }) {
     super();
     this.doc = doc;
-    this.useV2Encoding = useV2Encoding;
     // this.doc.load(); // this just emits a load event, it doesn't actually load anything
-    this.doc.on(useV2Encoding ? "updateV2" : "update", this.updateHandler);
+    this.doc.on("update", this.updateHandler);
     this.updateRoomDoc = (update: Uint8Array) => {
       updateDoc(update, isRoot ? undefined : this.doc.guid);
     };
@@ -61,50 +57,72 @@ export default class yDocHandler extends Observable<unknown> {
     this.remoteReadyΣ = new Signal<boolean>(false);
     this.hasUnsentLocalChangesΣ = new Signal<boolean>(false);
     this.pendingOutgoingΣ = new Signal<number>(0);
-
-    this.syncDoc();
   }
 
-  public handleServerUpdate = ({
-    update,
-    stateVector,
-    readOnly,
-    v2,
-  }: {
-    update: Uint8Array;
-    stateVector: string | null;
-    readOnly: boolean;
-    v2?: boolean;
-  }): void => {
-    // apply update from the server, updates from the server can be v1 or v2
-    const applyUpdate = v2 ? Y.applyUpdateV2 : Y.applyUpdate;
-    // Ack packets may send an empty update; Yjs will throw if we try to decode it.
-    if (update.byteLength > 0) {
-      applyUpdate(this.doc, update, "backend");
+  private computeDiffUpdateFromCurrentState(
+    currentStateUpdate: Uint8Array
+  ): Uint8Array {
+    const yjsDoc = new Y.Doc();
+    if (currentStateUpdate.byteLength > 0) {
+      Y.applyUpdate(yjsDoc, currentStateUpdate, "backend");
     }
-    // if this update is the result of a fetch, the state vector is included
-    if (stateVector) {
-      if (!readOnly) {
-        // Use server state to calculate a diff and send it
-        try {
-          // send v1 or v2update according to client option
-          const encodeUpdate = this.useV2Encoding
-            ? Y.encodeStateAsUpdateV2
-            : Y.encodeStateAsUpdate;
-          const localUpdate = encodeUpdate(
-            this.doc,
-            Base64.toUint8Array(stateVector)
+
+    const serverStateVector = Y.encodeStateVector(yjsDoc);
+    return Y.encodeStateAsUpdate(this.doc, serverStateVector);
+  }
+
+  /**
+   * Must not be called for ack updates (updates added to the stream by the local session)
+   * because they are already applied to the document when the user edits the document.
+   */
+  public handleServerUpdate = (args: { update: Uint8Array }): void => {
+    Y.applyUpdate(this.doc, args.update, "backend");
+
+    // TODO: should this be here or just in handleDocSync?
+    this.remoteReadyΣ.set(true);
+  };
+
+  public handleDocSync = (args: {
+    currentStateUpdate: Uint8Array;
+    canWrite: boolean;
+  }) => {
+    // The sync is expected to return the full current state
+    // therefore pending updates are not expected
+    this.pendingOutgoingΣ.set(0);
+
+    Y.applyUpdate(this.doc, args.currentStateUpdate, "backend");
+
+    if (args.canWrite) {
+      try {
+        // Only send a diff if the server and local state vectors differ.
+        //
+        // Yjs delete-set bookkeeping can cause `encodeStateAsUpdate()` to return a
+        // small non-empty update even when visible content matches; state vectors do
+        // not include delete sets, so equality here is a reliable "content match" signal.
+        const serverDoc = new Y.Doc();
+        Y.applyUpdate(serverDoc, args.currentStateUpdate, "backend");
+        const serverVector = Y.encodeStateVector(serverDoc);
+        const localVector = Y.encodeStateVector(this.doc);
+
+        // Even if remote and local content matches, the diff update might still contain
+        // metadata informations like GC or deletions and therefore checking its size cannot
+        // be reliably used to determine if the the local doc is different from remote
+        // to then trigger the update that will push the update blob to the server
+        if (!pages_u8_equals(serverVector, localVector)) {
+          const diffUpdate = this.computeDiffUpdateFromCurrentState(
+            args.currentStateUpdate
           );
-          this.updateRoomDoc(localUpdate);
-        } catch (e) {
-          // something went wrong encoding local state to send to the server
-          console.warn(e);
+          this.updateRoomDoc(diffUpdate);
         }
+      } catch (e) {
+        // something went wrong encoding local state to send to the server
+        console.error("Error handling doc sync", e);
       }
-      // now that we've sent our local and received from server, we're in sync
-      // calling `syncDoc` again will sync up the documents
-      this.synced = true;
     }
+
+    // now that we've sent our local and received from server, we're in sync
+    // calling `syncDoc` again will sync up the documents
+    this.synced = true;
     this.remoteReadyΣ.set(true);
   };
 
@@ -139,15 +157,9 @@ export default class yDocHandler extends Observable<unknown> {
     }, yDocHandler.DEBOUNCE_INTERVAL_MS);
   }
 
-  private updateHandler = (
-    update: Uint8Array,
-    origin: string | IndexeddbPersistence
-  ) => {
-    this.debounced_markLocalChanged();
-
-    // don't send updates from indexedb, those will get handled by sync
-    const isFromLocal = origin instanceof IndexeddbPersistence;
-    if (origin !== "backend" && !isFromLocal) {
+  private updateHandler = (update: Uint8Array, origin: unknown) => {
+    if (origin !== "backend") {
+      this.debounced_markLocalChanged();
       this.updateRoomDoc(update);
     }
   };

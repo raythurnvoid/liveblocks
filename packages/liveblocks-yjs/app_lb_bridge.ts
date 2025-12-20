@@ -8,6 +8,7 @@ export type {
 export {
   app_convex,
   app_convex_api,
+  type app_convex_Id,
   type app_convex_Watch,
   type app_convex_FunctionArgs,
   type app_convex_FunctionReference,
@@ -16,5 +17,5 @@ export {
 
 export {
   pages_u8_to_array_buffer,
-  type pages_YjsTailUpdates,
+  pages_u8_equals,
 } from "../../../../shared/pages.ts";

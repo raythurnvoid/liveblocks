@@ -1,7 +1,7 @@
 {
 	"compilerOptions": {
 		// Default compilation target for any code that runs in the browser
-		"target": "es2022",
+		"target": "esnext",
 		"skipLibCheck": true,
 		// For all packages, let TypeScript use the following standardized way to
 		// resolve modules
