@@ -12,9 +12,6 @@ export default class yDocHandler extends Observable<unknown> {
   private updateRoomDoc: (update: Uint8Array) => void;
   private fetchRoomDoc: (vector: string) => void;
 
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private static readonly DEBOUNCE_INTERVAL_MS = 200;
-
   /**
    * Set to true once we've received any server response for the doc.
    */
@@ -149,12 +146,7 @@ export default class yDocHandler extends Observable<unknown> {
   }
 
   private debounced_markLocalChanged() {
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => {
-      // No expensive snapshot hashing; just keep a cheap "local changed" marker.
-      this.hasUnsentLocalChangesΣ.set(true);
-      this.debounceTimer = null;
-    }, yDocHandler.DEBOUNCE_INTERVAL_MS);
+    this.hasUnsentLocalChangesΣ.set(true);
   }
 
   private updateHandler = (update: Uint8Array, origin: unknown) => {
@@ -192,7 +184,6 @@ export default class yDocHandler extends Observable<unknown> {
   }
 
   destroy(): void {
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.doc.off("update", this.updateHandler);
     this.unsubscribers.forEach((unsub) => unsub());
     this._observers = new Map();
