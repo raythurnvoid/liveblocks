@@ -36,7 +36,6 @@ type PagesConvexYjsStream_Args = {
   workspaceId: string;
   projectId: string;
   presenceStore: pages_PresenceStore;
-  onMissingUpdatePacket: () => void;
   onGoodUpdatePacket: (
     packet: PagesConvexIncrementalUpdates["updates"][number]
   ) => void;
@@ -56,7 +55,6 @@ class PagesConvexYjsStream {
     incrementalUpdates: PagesConvexIncrementalUpdates | null;
   };
 
-  private onMissingUpdatePacket: PagesConvexYjsStream_Args["onMissingUpdatePacket"];
   private onRemoteUpdatePacket: PagesConvexYjsStream_Args["onGoodUpdatePacket"];
   private onAckUpdatePacket: PagesConvexYjsStream_Args["onAckUpdatePacket"];
   private onOutgoingUpdateSent: PagesConvexYjsStream_Args["onOutgoingUpdateSent"];
@@ -88,7 +86,6 @@ class PagesConvexYjsStream {
       incrementalUpdates: null,
     };
 
-    this.onMissingUpdatePacket = args.onMissingUpdatePacket;
     this.onRemoteUpdatePacket = args.onGoodUpdatePacket;
     this.onAckUpdatePacket = args.onAckUpdatePacket;
     this.onOutgoingUpdateSent = args.onOutgoingUpdateSent;
@@ -129,11 +126,6 @@ class PagesConvexYjsStream {
       const updatePacket = incrementalUpdates.updates[i];
 
       if (!updatePacket || updatePacket.sequence <= appliedSeq) continue;
-
-      if (appliedSeq !== 0 && updatePacket.sequence !== appliedSeq + 1) {
-        this.onMissingUpdatePacket();
-        return;
-      }
 
       // Only USER_EDIT with matching sessionId are treated as local (ack-only).
       // All other origins (USER_SNAPSHOT_RESTORE, USER_AI_EDIT, or USER_EDIT with different sessionId)
@@ -204,7 +196,7 @@ class PagesConvexYjsStream {
     let iteration = 0;
 
     try {
-      retry: do {
+      do {
         iteration++;
         if (iteration > 10) {
           console.error(
@@ -218,17 +210,31 @@ class PagesConvexYjsStream {
           break;
         }
 
-        const [result] = await Promise.all([
-          app_convex.query(
-            app_convex_api.ai_docs_temp.yjs_get_doc_last_snapshot,
-            {
-              workspaceId: this.args.workspaceId,
-              projectId: this.args.projectId,
-              pageId: this.args.pageId,
-            }
-          ),
-          this.incrementalUpdatesFirstValueReceived.promise,
-        ]);
+        let result: app_convex_FunctionReturnType<
+          typeof app_convex_api.ai_docs_temp.yjs_get_doc_last_snapshot
+        > | null = null;
+
+        try {
+          [result] = await Promise.all([
+            app_convex.query(
+              app_convex_api.ai_docs_temp.yjs_get_doc_last_snapshot,
+              {
+                workspaceId: this.args.workspaceId,
+                projectId: this.args.projectId,
+                pageId: this.args.pageId,
+              }
+            ),
+            this.incrementalUpdatesFirstValueReceived.promise,
+          ]);
+        } catch (err) {
+          console.warn(
+            "PagesConvexYjsStream.sync: snapshot query failed, retrying",
+            err
+          );
+          // Backoff a bit before retrying to avoid hot-looping on transient errors.
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          continue;
+        }
 
         if (!result) {
           console.error("PagesConvexYjsStream.sync: fetch_doc returned null");
@@ -256,24 +262,20 @@ class PagesConvexYjsStream {
 
             if (updateData.sequence <= lastSequence) {
               continue;
-            } // Do not allow to apply updates that are not in sequence
-            else if (updateData.sequence === lastSequence + 1) {
-              // Only USER_EDIT with matching sessionId are treated as local (ack-only).
-              // All other origins (USER_SNAPSHOT_RESTORE, USER_AI_EDIT, or USER_EDIT with different sessionId)
-              // are treated as remote changes and applied to the document.
-              const isLocalEdit =
-                updateData.origin.type === "USER_EDIT" &&
-                updateData.origin.session_id ===
-                  this.args.presenceStore.localSessionId;
+            }
 
-              lastSequence = updateData.sequence;
+            // Only USER_EDIT with matching sessionId are treated as local (ack-only).
+            // All other origins (USER_SNAPSHOT_RESTORE, USER_AI_EDIT, or USER_EDIT with different sessionId)
+            // are treated as remote changes and applied to the document.
+            const isLocalEdit =
+              updateData.origin.type === "USER_EDIT" &&
+              updateData.origin.session_id ===
+                this.args.presenceStore.localSessionId;
 
-              if (!isLocalEdit) {
-                updatesAfterSnapshot.push(new Uint8Array(updateData.update));
-              }
-            } else {
-              // IF non-consecutive updates are detected, we can refetch the snapshot and try again
-              continue retry;
+            lastSequence = updateData.sequence;
+
+            if (!isLocalEdit) {
+              updatesAfterSnapshot.push(new Uint8Array(updateData.update));
             }
           }
         }
@@ -435,9 +437,6 @@ export class LiveblocksYjsProvider
       workspaceId: this.args.workspaceId,
       projectId: this.args.projectId,
       presenceStore: args.presenceStore,
-      onMissingUpdatePacket: () => {
-        args.yDocHandler.syncDoc();
-      },
       onGoodUpdatePacket: (updateItem) => {
         args.yDocHandler.handleServerUpdate({
           update: new Uint8Array(updateItem.update),
