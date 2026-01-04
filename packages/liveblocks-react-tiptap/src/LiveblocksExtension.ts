@@ -313,9 +313,8 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
 
       const sessionId = options.presenceStore.localSessionId;
       const userId = options.presenceStore.sessionIdUserIdMap.get(sessionId);
-      let presence = options.presenceStore.presenceData.get(
-        options.presenceStore.localSessionId
-      ) /* assert not nullish or typescript complains */!;
+      let presence =
+        options.presenceStore.getPresenceData() /* assert not nullish or typescript complains */!;
       if (!presence) {
         throw new Error("presence for local session not found");
       }
@@ -360,8 +359,8 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
       if (presence) {
         updateUser({
           userId,
-          name: presence.name,
-          color: presence.color,
+          name: presence.userData.name,
+          color: presence.sessionData.color,
         });
       }
 
@@ -372,17 +371,18 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
           if (event.detail.sessionId === sessionId) {
             const oldPresenceData = presence;
             if (
-              oldPresenceData.name !== event.detail.data.name ||
-              oldPresenceData.color !== event.detail.data.color
+              oldPresenceData.userData.name !== event.detail.userData.name ||
+              oldPresenceData.sessionData.color !==
+                event.detail.sessionData.color
             ) {
               updateUser({
                 userId,
-                name: event.detail.data.name,
-                color: event.detail.data.color,
+                name: event.detail.userData.name,
+                color: event.detail.sessionData.color,
               });
             }
 
-            presence = event.detail.data;
+            presence = event.detail;
           }
         },
         { signal: abortController.signal }
@@ -427,16 +427,14 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
         throw new Error("presenceStore is required for useLiveblocksExtension");
       }
 
-      const presenceData = options.presenceStore.presenceData.get(
-        options.presenceStore.localSessionId
-      );
+      const presenceData = options.presenceStore.getPresenceData();
       if (!presenceData) {
         throw new Error("presenceData for local session not found");
       }
 
       const user = {
-        name: presenceData.name,
-        color: presenceData.color,
+        name: presenceData.userData.name,
+        color: presenceData.sessionData.color,
       };
 
       const extensions: AnyExtension[] = [

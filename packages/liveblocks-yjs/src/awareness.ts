@@ -15,7 +15,7 @@ type MetaClientState = {
 };
 
 type YjsData = NonNullable<
-  ReturnType<pages_PresenceStore["presenceData"]["get"]>
+  ReturnType<pages_PresenceStore["sessionsData"]["get"]>
 >["yjs_data"];
 
 class BatchedEventsHandler<Events extends Event> {
@@ -75,17 +75,16 @@ export class Awareness extends Observable<unknown> {
     this.doc = doc;
     this.presenceStore = presenceStore;
 
-    const presence = this.presenceStore.presenceData.get(
-      this.presenceStore.localSessionId
-    );
+    const presence = this.presenceStore.getPresenceData();
+
     this.presenceStore.setSessionData({
-      ...(presence ?? {}),
+      ...presence?.sessionData,
       yjs_clientId: this.doc.clientID,
       yjs_data: {
-        ...(presence?.yjs_data ?? {}),
+        ...(presence?.sessionData?.yjs_data ?? {}),
         user: {
-          name: presence?.name ?? null,
-          color: presence?.color ?? null,
+          name: presence?.userData?.name ?? null,
+          color: presence?.sessionData?.color ?? null,
         },
       },
     });
@@ -93,7 +92,7 @@ export class Awareness extends Observable<unknown> {
     for (const [
       sessionId,
       sessionPresence,
-    ] of this.presenceStore.presenceData.entries()) {
+    ] of this.presenceStore.sessionsData.entries()) {
       if (sessionPresence.yjs_clientId !== undefined) {
         this.sessionIdToYjsClientIdMap.set(
           sessionId,
@@ -104,8 +103,8 @@ export class Awareness extends Observable<unknown> {
 
     // Hydrate initial states so a newly opened tab immediately sees existing cursors.
     this.states = this.getStates();
-    if (this.presenceStore.presenceData.size > 0) {
-      const added = Array.from(this.presenceStore.presenceData.values()).map(
+    if (this.presenceStore.sessionsData.size > 0) {
+      const added = Array.from(this.presenceStore.sessionsData.values()).map(
         (presence) => presence.yjs_clientId
       );
       this.emit("change", [{ added, updated: [], removed: [] }, "presence"]);
@@ -119,7 +118,7 @@ export class Awareness extends Observable<unknown> {
         const removed: number[] = [];
 
         for (const event of events) {
-          const presence = this.presenceStore.presenceData.get(
+          const presence = this.presenceStore.sessionsData.get(
             event.detail.sessionId
           );
 
@@ -217,7 +216,7 @@ export class Awareness extends Observable<unknown> {
   }
 
   getLocalState() {
-    const presence = this.presenceStore.presenceData.get(
+    const presence = this.presenceStore.sessionsData.get(
       this.presenceStore.localSessionId
     );
     if (!presence?.yjs_data) {
@@ -227,13 +226,14 @@ export class Awareness extends Observable<unknown> {
   }
 
   setLocalState(state: YjsData | null): void {
-    const presence = this.presenceStore.presenceData.get(
-      this.presenceStore.localSessionId
-    );
+    const presence = this.presenceStore.getPresenceData();
     if (!presence) return;
 
     if (state === null) {
-      this.presenceStore.setSessionData({ ...presence, yjs_data: null });
+      this.presenceStore.setSessionData({
+        ...presence.sessionData,
+        yjs_data: null,
+      });
       this.states = this.getStates();
       this.emit("update", [
         { added: [], updated: [], removed: [this.doc.clientID] },
@@ -243,15 +243,17 @@ export class Awareness extends Observable<unknown> {
     }
 
     // if presence was undefined, it's added, if not, it's updated
-    const added = presence.yjs_data === undefined ? [this.doc.clientID] : [];
-    const updated = presence.yjs_data === undefined ? [] : [this.doc.clientID];
+    const added =
+      presence.sessionData.yjs_data === undefined ? [this.doc.clientID] : [];
+    const updated =
+      presence.sessionData.yjs_data === undefined ? [] : [this.doc.clientID];
     this.presenceStore.setSessionData({
-      ...presence,
+      ...presence.sessionData,
       yjs_data: {
-        ...(presence.yjs_data || {
+        ...(presence.sessionData.yjs_data || {
           user: {
-            name: presence.name ?? null,
-            color: presence.color ?? null,
+            name: presence.userData.name ?? null,
+            color: presence.sessionData.color ?? null,
           },
         }),
         ...(state || {}),
@@ -262,19 +264,17 @@ export class Awareness extends Observable<unknown> {
   }
 
   setLocalStateField(field: string, value: unknown | null): void {
-    const presence = this.presenceStore.presenceData.get(
-      this.presenceStore.localSessionId
-    );
+    const presence = this.presenceStore.getPresenceData();
     // If there's not presence it means the client disconnected (the page is not in foreground)
     if (!presence) return;
 
     this.presenceStore.setSessionData({
-      ...(presence || {}),
+      ...presence.sessionData,
       yjs_data: {
-        ...(presence?.yjs_data || {
+        ...(presence?.sessionData?.yjs_data || {
           user: {
-            name: presence.name ?? null,
-            color: presence.color ?? null,
+            name: presence.userData.name ?? null,
+            color: presence.sessionData.color ?? null,
           },
         }),
         [field]: JSON.parse(JSON.stringify(value)),
@@ -284,7 +284,7 @@ export class Awareness extends Observable<unknown> {
 
   // Translate PresenceStore data to yjs awareness
   getStates(): Map<number, unknown> {
-    const presenceData = Array.from(this.presenceStore.presenceData.entries());
+    const presenceData = Array.from(this.presenceStore.sessionsData.entries());
 
     const states = new Map<number, unknown>();
     for (const [_sessionId, presence] of presenceData) {
