@@ -274,9 +274,11 @@ class PagesConvexYjsStream {
 
             lastSequence = updateData.sequence;
 
-            if (!isLocalEdit) {
-              updatesAfterSnapshot.push(new Uint8Array(updateData.update));
-            }
+            // Only skip local edits AFTER we've hydrated at least once.
+            // On the first sync of a fresh provider, the doc has NOT applied them yet.
+            if (this.state.ready && isLocalEdit) continue;
+
+            updatesAfterSnapshot.push(new Uint8Array(updateData.update));
           }
         }
 
