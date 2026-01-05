@@ -1,6 +1,6 @@
 import { Extension, Mark, mergeAttributes } from "@tiptap/core";
 import type { Node } from "@tiptap/pm/model";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
 import type { ThreadPluginState } from "../types";
@@ -31,6 +31,17 @@ const Comment = Mark.create<{
   excludes: "",
   inclusive: false,
   keepOnSplit: true,
+  renderMarkdown: (node, helpers) => {
+    const threadId = node.attrs?.threadId as string | undefined;
+    const orphan = node.attrs?.orphan as boolean | undefined;
+    const content = helpers.renderChildren(node.content || []);
+
+    if (!threadId) {
+      return content;
+    }
+
+    return `<span data-lb-thread-id="${threadId}"${orphan ? ' data-orphan="true"' : ""}>${content}</span>`;
+  },
   parseHTML: () => {
     return [
       {
@@ -411,4 +422,9 @@ export function areSetsEqual(a?: Set<string>, b?: Set<string>): boolean {
   if (a.size !== b.size) return false;
   for (const v of a) if (!b.has(v)) return false;
   return true;
+}
+
+export function getThreadIdsFromEditorState(state: EditorState): string[] {
+  const pluginState = THREADS_PLUGIN_KEY.getState(state);
+  return pluginState ? Array.from(pluginState.threadIds) : [];
 }

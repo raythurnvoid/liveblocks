@@ -86,3 +86,5 @@ declare module "@tiptap/core" {
     };
   }
 }
+
+export { getThreadIdsFromEditorState } from "./comments/CommentsExtension";
