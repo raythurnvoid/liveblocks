@@ -24,6 +24,7 @@ export const FILTERED_THREADS_PLUGIN_KEY = new PluginKey<{
  * https://github.com/ueberdosis/tiptap/issues/4339
  * https://github.com/yjs/@tiptap/y-tiptap/issues/47
  */
+
 const Comment = Mark.create<{
   onThreadsChange?: (threadIds: string[]) => void;
 }>({
@@ -32,22 +33,21 @@ const Comment = Mark.create<{
   inclusive: false,
   keepOnSplit: true,
   renderMarkdown: (node, helpers) => {
-    const threadId = node.attrs?.threadId as string | undefined;
-    const orphan = node.attrs?.orphan as boolean | undefined;
-    const content = helpers.renderChildren(node.content || []);
-
-    if (!threadId) {
-      return content;
-    }
-
-    return `<span data-lb-thread-id="${threadId}"${orphan ? ' data-orphan="true"' : ""}>${content}</span>`;
+    const threadId =
+      typeof node.attrs?.threadId === "string" ? node.attrs.threadId : "";
+    if (!threadId) return helpers.renderChildren(node.content || []);
+    const orphan = node.attrs?.orphan === true;
+    return `<span data-type="comment" data-lb-thread-id="${threadId.replaceAll('"', "&quot;")}"${orphan ? ' data-orphan="true"' : ""}>${helpers.renderChildren(node.content || [])}</span>`;
   },
+
   parseHTML: () => {
     return [
       {
         tag: "span",
         getAttrs: (node) =>
-          node.getAttribute("data-lb-thread-id") !== null && null,
+          node.getAttribute("data-lb-thread-id") !== null &&
+          node.getAttribute("data-type") === "comment" &&
+          null,
       },
     ];
   },
@@ -89,6 +89,7 @@ const Comment = Mark.create<{
         "span",
         mergeAttributes(HTMLAttributes, {
           class: "lb-root lb-tiptap-thread-mark",
+          "data-type": "comment",
           "data-hidden": "",
         }),
       ];
@@ -98,6 +99,7 @@ const Comment = Mark.create<{
       "span",
       mergeAttributes(HTMLAttributes, {
         class: "lb-root lb-tiptap-thread-mark",
+        "data-type": "comment",
       }),
     ];
   },
@@ -142,15 +144,17 @@ const Comment = Mark.create<{
                 })
               );
 
-              const decoration = this.editor.view.dom.querySelector(
-                `.lb-tiptap-thread-mark[data-lb-thread-id="${thisThreadId}"]`
-              );
+              if (this.editor.view) {
+                const decoration = this.editor.view.dom.querySelector(
+                  `.lb-tiptap-thread-mark[data-lb-thread-id="${thisThreadId}"]`
+                );
 
-              if (decoration) {
-                decoration.scrollIntoView({
-                  behavior: "smooth",
-                  block: "nearest",
-                });
+                if (decoration) {
+                  decoration.scrollIntoView({
+                    behavior: "smooth",
+                    block: "nearest",
+                  });
+                }
               }
             }
           }
@@ -368,6 +372,10 @@ export const CommentsExtension = Extension.create<{
               "span.lb-tiptap-thread-mark[data-lb-thread-id]"
             );
             els.forEach((el) => {
+              if (el.getAttribute("data-type") !== "comment") {
+                el.setAttribute("data-type", "comment");
+              }
+
               const id = el.getAttribute("data-lb-thread-id");
               if (!id) return;
               if (!filteredThreads || filteredThreads.has(id)) {
