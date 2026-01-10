@@ -14,11 +14,12 @@ export type { AiToolbarProps } from "./ai/AiToolbar";
 export { AiToolbar } from "./ai/AiToolbar";
 export type {
   AnchoredThreadsProps,
-  AnchoredThreadComponent_Props,
   AnchoredThreads_CssVars,
 } from "./comments/AnchoredThreads";
-export { AnchoredThreads_CssVars_DEFAULTS } from "./comments/AnchoredThreads";
-export { AnchoredThreads } from "./comments/AnchoredThreads";
+export {
+  AnchoredThreads,
+  AnchoredThreadsItem,
+} from "./comments/AnchoredThreads";
 export { CommentsExtension } from "./comments/CommentsExtension";
 export type { FloatingComposerProps } from "./comments/FloatingComposer";
 export { FloatingComposer } from "./comments/FloatingComposer";

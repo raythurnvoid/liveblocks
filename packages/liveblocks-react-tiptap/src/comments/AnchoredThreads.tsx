@@ -1,91 +1,35 @@
 import { useLayoutEffect } from "@liveblocks/react/_private";
 import { cn } from "@liveblocks/react-ui/_private";
 import { type Editor, useEditorState } from "@tiptap/react";
-import type { ComponentPropsWithoutRef, ComponentType } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  ComponentPropsWithoutRef,
+  ComponentPropsWithRef,
+  ReactNode,
+} from "react";
+import {
+  createContext,
+  use,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useState,
+} from "react";
 
 import { THREADS_PLUGIN_KEY } from "../types";
 import { getRectFromCoords } from "../utils";
 import type { human_thread_messages_Thread } from "../../app_lb_bridge.ts";
 
-const DEFAULT_GAP = 20;
-const DEFAULT_ACTIVE_THREAD_OFFSET = -12;
-
-// TODO: move that back to a variable
-const GAP = `var(--lb-tiptap-anchored-threads-gap, ${DEFAULT_GAP}px)`;
-const ACTIVE_THREAD_OFFSET = `var(--lb-tiptap-anchored-threads-active-thread-offset, ${DEFAULT_ACTIVE_THREAD_OFFSET}px)`;
-
-/**
- * CSS variables supported by AnchoredThreads component.
- * These can be set via inline styles or CSS to customize thread positioning.
- */
-export type AnchoredThreads_CssVars = {
-  "--lb-tiptap-anchored-threads-gap": string;
-  "--lb-tiptap-anchored-threads-active-thread-offset": string;
-};
-
-/**
- * Default values for AnchoredThreads CSS variables.
- */
-export const AnchoredThreads_CssVars_DEFAULTS: Partial<AnchoredThreads_CssVars> =
-  {
-    "--lb-tiptap-anchored-threads-gap": `${DEFAULT_GAP}px`,
-    "--lb-tiptap-anchored-threads-active-thread-offset": `${DEFAULT_ACTIVE_THREAD_OFFSET}px`,
-  } as const;
-
-export type AnchoredThreadComponent_Props = {
-  thread: human_thread_messages_Thread;
-  isActive: boolean;
-  className?: string;
-  style?: React.CSSProperties;
-  onClick?: React.MouseEventHandler<HTMLElement>;
-};
-
-type AnchoredThreadsComponents = {
-  Thread: ComponentType<AnchoredThreadComponent_Props>;
-};
-
-export interface AnchoredThreadsProps
-  extends Omit<ComponentPropsWithoutRef<"div">, "children"> {
-  /**
-   * The threads to display.
-   */
-  threads: human_thread_messages_Thread[];
-
-  /**
-   * The thread component to render.
-   */
-  components: AnchoredThreadsComponents;
-
-  /**
-   * The Tiptap editor.
-   */
-  editor: Editor | null;
+function readThreadElementDataset(element: HTMLElement) {
+  const threadId = element.dataset.threadId;
+  const isActive = element.dataset.threadActive === "true";
+  return { threadId, isActive };
 }
 
-export function AnchoredThreads({
-  threads,
-  components,
-  className,
-  style,
-  editor,
-  ...props
-}: AnchoredThreadsProps) {
-  const Thread = components.Thread;
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [orderedThreads, setOrderedThreads] = useState<
-    {
-      position: { from: number; to: number };
-      thread: human_thread_messages_Thread;
-    }[]
-  >([]);
-  const [elements, setElements] = useState<Map<string, HTMLElement>>(new Map());
-  const [positions, setPositions] = useState<Map<string, number>>(new Map()); // A map of thread ids to their 'top' position in the document
-
-  const { pluginState } = useEditorState({
+function useThreadsEditorState(editor: Editor) {
+  const state = useEditorState({
     editor,
     selector: (ctx) => {
-      if (!ctx?.editor?.state) return { pluginState: undefined };
+      if (!ctx.editor.state) return { pluginState: undefined };
       const state = THREADS_PLUGIN_KEY.getState(ctx.editor.state);
       return {
         pluginState: state,
@@ -99,224 +43,299 @@ export function AnchoredThreads({
         prev.pluginState?.threadPositions === next.pluginState?.threadPositions
       ); // new map is made each time threadPos updates so shallow equality is fine
     },
-  }) ?? { pluginState: undefined };
+  });
+
+  return useMemo(
+    () =>
+      state.pluginState
+        ? {
+            selectedThreadId: state.pluginState.selectedThreadId,
+            threadPositions: state.pluginState.threadPositions,
+          }
+        : undefined,
+    [state.pluginState]
+  );
+}
+
+type AnchoredThreadsContext_Value = NonNullable<
+  ReturnType<typeof useThreadsEditorState>
+>;
+
+const AnchoredThreadsContext =
+  createContext<AnchoredThreadsContext_Value | null>(null);
+
+type AnchoredThreadsItemContext_Value = {
+  isActive: boolean;
+};
+
+const AnchoredThreadsItemContext =
+  createContext<AnchoredThreadsItemContext_Value | null>(null);
+
+export type AnchoredThreadsItem_Props = ComponentPropsWithRef<"div"> & {
+  className?: string;
+  thread: human_thread_messages_Thread;
+  children: ReactNode;
+};
+
+export function AnchoredThreadsItem(props: AnchoredThreadsItem_Props) {
+  const { className, thread, children, ...rest } = props;
+
+  const context = use(AnchoredThreadsContext);
+  if (!context)
+    throw new Error(
+      "AnchoredThreadsItem must be used within an AnchoredThreads component"
+    );
+
+  const threadId = thread.id;
+  const isActive =
+    Boolean(context.selectedThreadId) && context.selectedThreadId === thread.id;
+
+  return (
+    <AnchoredThreadsItemContext.Provider value={{ isActive }}>
+      <div
+        className={cn(className, "lb-tiptap-anchored-threads-item")}
+        data-thread-id={threadId}
+        data-thread-active={isActive ? "true" : "false"}
+        {...rest}
+      >
+        {children}
+      </div>
+    </AnchoredThreadsItemContext.Provider>
+  );
+}
+
+AnchoredThreadsItem.useContext = () => {
+  const context = use(AnchoredThreadsItemContext);
+  if (!context)
+    throw new Error(
+      "AnchoredThreadsItem.useContext must be used within an AnchoredThreadsItem component"
+    );
+  return context;
+};
+
+/**
+ * CSS variables supported by AnchoredThreads component.
+ * These can be set via inline styles or CSS to customize thread positioning.
+ */
+export type AnchoredThreads_CssVars = {
+  "--lb-tiptap-anchored-threads-top": string;
+};
+
+type ThreadWithEditorPosition = {
+  thread: human_thread_messages_Thread;
+  position: { from: number; to: number };
+};
+
+export interface AnchoredThreadsProps extends ComponentPropsWithoutRef<"div"> {
+  /**
+   * The threads to display.
+   */
+  threads: human_thread_messages_Thread[];
+
+  /**
+   * The Tiptap editor.
+   */
+  editor: Editor;
+}
+
+export function AnchoredThreads({
+  threads,
+  className,
+  style,
+  editor,
+  children,
+  ...props
+}: AnchoredThreadsProps) {
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  const [threadsWithEditorPosition, setThreadsWithEditorPosition] = useState<
+    ThreadWithEditorPosition[]
+  >([]);
+
+  const threadsEditorState = useThreadsEditorState(editor);
 
   // TODO: lexical supoprts multiple threads being active, should probably do that here as well
-  const handlePositionThreads = useCallback(() => {
-    const container = containerRef.current;
-    if (container === null || !editor || !editor.view) return;
+  const handlePositionThreads = useEffectEvent(() => {
+    if (container === null || !editor.view) return;
 
-    const activeIndex = orderedThreads.findIndex(
-      ({ thread }) => thread.id === pluginState?.selectedThreadId
-    );
+    let activeIndex = 0;
+    const elements: HTMLElement[] = [];
+    const elementsHeights = new Map<HTMLElement, number>();
+    const elementsThreadsEditorPositionMap = new Map<
+      HTMLElement,
+      (typeof threadsWithEditorPosition)[number]
+    >();
+
+    for (const c of container.children) {
+      const child = c as HTMLElement;
+      elements.push(child);
+      elementsHeights.set(child, child.getBoundingClientRect().height);
+      const elDataset = readThreadElementDataset(child);
+      if (elDataset.threadId != null) {
+        const threadWithEditorPosition = threadsWithEditorPosition.find(
+          (t) => t.thread.id === elDataset.threadId
+        );
+
+        if (threadWithEditorPosition) {
+          elementsThreadsEditorPositionMap.set(child, threadWithEditorPosition);
+        }
+        if (elDataset.isActive) {
+          activeIndex = elements.indexOf(child);
+        }
+      }
+    }
+
     const ascending =
-      activeIndex !== -1 ? orderedThreads.slice(activeIndex) : orderedThreads;
-    const descending =
-      activeIndex !== -1 ? orderedThreads.slice(0, activeIndex) : [];
+      activeIndex !== -1 ? elements.slice(activeIndex) : elements;
+    const descending = activeIndex !== -1 ? elements.slice(0, activeIndex) : [];
 
-    const newPositions = new Map<string, number>();
+    const containerTop = container.getBoundingClientRect().top;
+    let baselineTop = undefined;
+    let currentTop = 0;
 
-    // Iterate over each thread and calculate its new position by taking into account the position of the previously positioned threads
-    for (const { thread, position } of ascending) {
-      const coords = editor.view.coordsAtPos(
-        Math.min(position.from, editor.view.state.doc.content.size - 1)
-      );
-      const rect = getRectFromCoords(coords);
-      let top = rect.top - container.getBoundingClientRect().top;
+    // Iterate over each thread and calculate its new position by taking into account
+    // the position of the previously positioned threads
+    for (const el of ascending) {
+      const threadWithEditorPosition = elementsThreadsEditorPositionMap.get(el);
 
-      for (const [id, position] of newPositions) {
-        // Retrieve the element associated with the thread
-        const el = elements.get(id);
-        if (el === undefined) continue;
-
-        if (
-          top >= position &&
-          top <= position + el.getBoundingClientRect().height
-        ) {
-          top = position + el.getBoundingClientRect().height;
-        }
-      }
-
-      newPositions.set(thread.id, top);
-    }
-
-    for (const { thread, position } of descending.reverse()) {
-      const coords = editor.view.coordsAtPos(position.from);
-      const rect = getRectFromCoords(coords);
-      // Retrieve the element associated with the current thread
-      const el = elements.get(thread.id);
-      if (el === undefined) continue;
-
-      let top = rect.top - container.getBoundingClientRect().top;
-      for (const [, position] of newPositions) {
-        if (top >= position - el.getBoundingClientRect().height) {
-          top = position - el.getBoundingClientRect().height;
-        }
-      }
-
-      newPositions.set(thread.id, top);
-    }
-
-    setPositions(newPositions);
-  }, [editor, orderedThreads, pluginState?.selectedThreadId, elements]);
-
-  useEffect(() => {
-    if (!pluginState) return;
-    setOrderedThreads(
-      Array.from(pluginState.threadPositions, ([threadId, position]) => ({
-        threadId,
-        position,
-      })).reduce(
-        (acc, { threadId, position }) => {
-          const thread = threads.find(
-            (thread) => thread.id === threadId && !thread.is_archived
-          );
-          if (!thread) return acc;
-          acc.push({ thread, position });
-          return acc;
-        },
-        [] as {
-          thread: human_thread_messages_Thread;
-          position: { from: number; to: number };
-        }[]
-      )
-    );
-    handlePositionThreads();
-    // disable exhaustive deps because we don't want an infinite loop
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pluginState, threads]);
-
-  useLayoutEffect(handlePositionThreads, [handlePositionThreads]);
-
-  useEffect(() => {
-    const observer = new ResizeObserver(handlePositionThreads);
-    const container = editor?.view?.dom;
-    if (container) {
-      observer.observe(container);
-    }
-    for (const element of elements.values()) {
-      observer.observe(element);
-    }
-
-    return () => observer.disconnect();
-  }, [elements, editor, handlePositionThreads]);
-
-  const onItemAdd = useCallback((id: string, el: HTMLElement) => {
-    setElements((prev) => new Map(prev).set(id, el));
-  }, []);
-
-  const onItemRemove = useCallback((id: string) => {
-    setElements((prev) => {
-      const items = new Map(prev);
-      items.delete(id);
-      return items;
-    });
-  }, []);
-
-  const onThreadSelect = useCallback(
-    (id: string) => {
-      if (!editor) return;
-      editor.commands.selectThread(id);
-    },
-    [editor]
-  );
-
-  if (!editor) return null;
-
-  return (
-    <div
-      {...props}
-      className={cn(className, "lb-root lb-tiptap-anchored-threads")}
-      ref={containerRef}
-      style={{
-        position: "relative",
-        ...style,
-      }}
-    >
-      {orderedThreads.map(({ thread, position }) => {
-        // In blocknote, it's possible for this to be undefined
-        if (!editor.view) {
-          return null;
-        }
+      if (threadWithEditorPosition) {
         const coords = editor.view.coordsAtPos(
-          Math.min(position.from, editor.state.doc.content.size - 1)
+          Math.min(
+            threadWithEditorPosition.position.from,
+            editor.view.state.doc.content.size - 1
+          )
         );
         const rect = getRectFromCoords(coords);
-        const offset = editor.view.dom.getBoundingClientRect().top;
+        currentTop = Math.max(currentTop, rect.top - containerTop);
+      }
 
-        let top = rect.top - offset;
+      if (baselineTop === undefined) {
+        baselineTop = currentTop;
+      }
 
-        if (positions.has(thread.id)) {
-          top = positions.get(thread.id)!;
-        }
+      el.style.setProperty(
+        "--lb-tiptap-anchored-threads-top" satisfies keyof AnchoredThreads_CssVars,
+        `${currentTop}px`
+      );
 
-        const isActive = thread.id === pluginState?.selectedThreadId;
+      const elHeight = elementsHeights.get(el) ?? 0;
+      currentTop += elHeight;
+    }
 
-        return (
-          <ThreadWrapper
-            key={thread.id}
-            onThreadClick={onThreadSelect}
-            onItemAdd={onItemAdd}
-            onItemRemove={onItemRemove}
-            Thread={Thread}
-            thread={thread}
-            isActive={isActive}
-            style={{
-              position: "absolute",
-              transform: `translate3d(${isActive ? ACTIVE_THREAD_OFFSET : 0}, ${top}px, 0)`,
-              insetInlineStart: 0,
-              inlineSize: "100%",
-              paddingBlockEnd: GAP,
-            }}
-          />
+    // Iterate over elements above the active one and set their position by taking into account
+    // the position of elements positioned below
+    currentTop = baselineTop ?? 0;
+
+    for (const el of descending.reverse()) {
+      const elHeight = elementsHeights.get(el) ?? 0;
+      currentTop -= elHeight;
+
+      const threadWithEditorPosition = elementsThreadsEditorPositionMap.get(el);
+
+      if (threadWithEditorPosition) {
+        const coords = editor.view.coordsAtPos(
+          Math.min(
+            threadWithEditorPosition.position.from,
+            editor.view.state.doc.content.size - 1
+          )
         );
-      })}
-    </div>
-  );
-}
+        const rect = getRectFromCoords(coords);
+        currentTop = Math.min(currentTop, rect.top - containerTop);
+      }
 
-interface ThreadWrapperProps extends ComponentPropsWithoutRef<"div"> {
-  Thread: ComponentType<AnchoredThreadComponent_Props>;
-  thread: human_thread_messages_Thread;
-  onThreadClick: (id: string) => void;
-  onItemAdd: (id: string, el: HTMLElement) => void;
-  onItemRemove: (id: string) => void;
-  isActive: boolean;
-}
+      el.style.setProperty(
+        "--lb-tiptap-anchored-threads-top" satisfies keyof AnchoredThreads_CssVars,
+        `${currentTop}px`
+      );
+    }
+  });
 
-function ThreadWrapper({
-  onThreadClick,
-  onItemAdd,
-  onItemRemove,
-  thread,
-  Thread,
-  className,
-  isActive,
-  ...props
-}: ThreadWrapperProps) {
-  const divRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!threadsEditorState?.threadPositions) return;
+    const nextThreadsWithEditorPosition = Array.from(
+      threadsEditorState.threadPositions,
+      ([threadId, position]) => ({
+        threadId,
+        position,
+      })
+    ).reduce(
+      (acc, { threadId, position }) => {
+        const thread = threads.find(
+          (thread) => thread.id === threadId && !thread.is_archived
+        );
+        if (!thread) return acc;
+        acc.push({ thread, position });
+        return acc;
+      },
+      [] as {
+        thread: human_thread_messages_Thread;
+        position: { from: number; to: number };
+      }[]
+    );
+    setThreadsWithEditorPosition(nextThreadsWithEditorPosition);
+    // disable exhaustive deps because we don't want an infinite loop
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadsEditorState, threads]);
 
   useLayoutEffect(() => {
-    const el = divRef.current;
-    if (el === null) return;
+    handlePositionThreads();
+  }, [threadsWithEditorPosition]);
 
-    onItemAdd(thread.id, el);
+  useLayoutEffect(() => {
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver(() => handlePositionThreads());
+
+    const mutationObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const addedNode of mutation.addedNodes) {
+          if (addedNode instanceof HTMLElement) {
+            resizeObserver.observe(addedNode);
+          }
+        }
+      }
+    });
+
+    if (editor.view?.dom) {
+      resizeObserver.observe(editor.view.dom);
+    }
+    for (const element of container.children) {
+      resizeObserver.observe(element);
+    }
+
+    mutationObserver.observe(container, {
+      childList: true,
+    });
+
     return () => {
-      onItemRemove(thread.id);
+      mutationObserver.disconnect();
+      resizeObserver.disconnect();
     };
-  }, [onItemAdd, onItemRemove, thread.id]);
+  }, [container, editor]);
 
-  function handleThreadClick() {
-    onThreadClick(thread.id);
-  }
+  if (!threadsEditorState) return null;
 
   return (
-    <div
-      ref={divRef}
-      className={cn("lb-tiptap-anchored-threads-thread-container", className)}
-      {...props}
-    >
-      <Thread thread={thread} isActive={isActive} onClick={handleThreadClick} />
-    </div>
+    <AnchoredThreadsContext.Provider value={threadsEditorState}>
+      <div
+        {...props}
+        className={cn(className, "lb-tiptap-anchored-threads")}
+        ref={setContainer}
+        style={{
+          position: "relative",
+          ...style,
+        }}
+      >
+        {children}
+      </div>
+    </AnchoredThreadsContext.Provider>
   );
 }
+
+AnchoredThreads.useContext = () => {
+  const context = use(AnchoredThreadsContext);
+  if (!context)
+    throw new Error(
+      "AnchoredThreads.useContext must be used within an AnchoredThreads component"
+    );
+  return context;
+};
