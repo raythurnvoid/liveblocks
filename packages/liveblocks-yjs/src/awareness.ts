@@ -83,7 +83,7 @@ export class Awareness extends Observable<unknown> {
       yjs_data: {
         ...(presence?.sessionData?.yjs_data ?? {}),
         user: {
-          name: presence?.userData?.name ?? null,
+          name: presence?.userData?.displayName ?? null,
           color: presence?.sessionData?.color ?? null,
         },
       },
@@ -252,7 +252,7 @@ export class Awareness extends Observable<unknown> {
       yjs_data: {
         ...(presence.sessionData.yjs_data || {
           user: {
-            name: presence.userData.name ?? null,
+            name: presence.userData.displayName ?? null,
             color: presence.sessionData.color ?? null,
           },
         }),
@@ -273,7 +273,7 @@ export class Awareness extends Observable<unknown> {
       yjs_data: {
         ...(presence?.sessionData?.yjs_data || {
           user: {
-            name: presence.userData.name ?? null,
+            name: presence.userData.displayName ?? null,
             color: presence.sessionData.color ?? null,
           },
         }),

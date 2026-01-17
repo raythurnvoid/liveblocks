@@ -359,7 +359,7 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
       if (presence) {
         updateUser({
           userId,
-          name: presence.userData.name,
+          name: presence.userData.displayName,
           color: presence.sessionData.color,
         });
       }
@@ -371,13 +371,14 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
           if (event.detail.sessionId === sessionId) {
             const oldPresenceData = presence;
             if (
-              oldPresenceData.userData.name !== event.detail.userData.name ||
+              oldPresenceData.userData.displayName !==
+                event.detail.userData.displayName ||
               oldPresenceData.sessionData.color !==
                 event.detail.sessionData.color
             ) {
               updateUser({
                 userId,
-                name: event.detail.userData.name,
+                name: event.detail.userData.displayName,
                 color: event.detail.sessionData.color,
               });
             }
@@ -433,7 +434,7 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
       }
 
       const user = {
-        name: presenceData.userData.name,
+        name: presenceData.userData.displayName,
         color: presenceData.sessionData.color,
       };
 
