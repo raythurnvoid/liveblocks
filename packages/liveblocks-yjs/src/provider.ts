@@ -33,8 +33,7 @@ type PagesConvexIncrementalUpdates = NonNullable<
 
 type PagesConvexYjsStream_Args = {
   pageId: app_convex_Id<"pages">;
-  workspaceId: string;
-  projectId: string;
+  membershipId: app_convex_Id<"workspaces_projects_users">;
   presenceStore: pages_PresenceStore;
   onGoodUpdatePacket: (
     packet: PagesConvexIncrementalUpdates["updates"][number]
@@ -94,8 +93,7 @@ class PagesConvexYjsStream {
     this.watcher = app_convex.watchQuery(
       app_convex_api.ai_docs_temp.yjs_get_incremental_updates,
       {
-        workspaceId: args.workspaceId,
-        projectId: args.projectId,
+        membershipId: args.membershipId,
         pageId: args.pageId,
       }
     );
@@ -164,8 +162,7 @@ class PagesConvexYjsStream {
 
     app_convex
       .mutation(app_convex_api.ai_docs_temp.yjs_push_update, {
-        workspaceId: this.args.workspaceId,
-        projectId: this.args.projectId,
+        membershipId: this.args.membershipId,
         pageId: this.args.pageId,
         update: pages_u8_to_array_buffer(merged),
         sessionId: this.args.presenceStore.localSessionId,
@@ -202,8 +199,7 @@ class PagesConvexYjsStream {
           console.error(
             "PagesConvexYjsStream.sync: yjs sync failed after 10 retries",
             {
-              workspaceId: this.args.workspaceId,
-              projectId: this.args.projectId,
+              membershipId: this.args.membershipId,
               pageId: this.args.pageId,
             }
           );
@@ -219,8 +215,7 @@ class PagesConvexYjsStream {
             app_convex.query(
               app_convex_api.ai_docs_temp.yjs_get_doc_last_snapshot,
               {
-                workspaceId: this.args.workspaceId,
-                projectId: this.args.projectId,
+                membershipId: this.args.membershipId,
                 pageId: this.args.pageId,
               }
             ),
@@ -318,8 +313,7 @@ export type LiveblocksYjsProvider_Args = {
   pageId: app_convex_Id<"pages">;
   enablePermanentUserData?: boolean;
   presenceStore: pages_PresenceStore;
-  workspaceId: string;
-  projectId: string;
+  membershipId: app_convex_Id<"workspaces_projects_users">;
 };
 
 export class LiveblocksYjsProvider
@@ -436,8 +430,7 @@ export class LiveblocksYjsProvider
 
     stream = new PagesConvexYjsStream({
       pageId: this.args.pageId,
-      workspaceId: this.args.workspaceId,
-      projectId: this.args.projectId,
+      membershipId: this.args.membershipId,
       presenceStore: args.presenceStore,
       onGoodUpdatePacket: (updateItem) => {
         args.yDocHandler.handleServerUpdate({
