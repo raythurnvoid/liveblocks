@@ -167,8 +167,13 @@ class PagesConvexYjsStream {
         update: pages_u8_to_array_buffer(merged),
         sessionId: this.args.presenceStore.localSessionId,
       })
+      .then((result) => {
+        if (result._nay) {
+          console.warn("[ConvexYjsSync] submit_update failed", result._nay);
+        }
+      })
       .catch((err) => {
-        console.warn("[ConvexYjsSync] submit_update failed", err);
+        console.warn("[ConvexYjsSync] submit_update errored", err);
       });
   }
 
