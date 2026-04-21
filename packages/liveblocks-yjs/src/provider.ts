@@ -12,6 +12,7 @@ import yDocHandler from "./doc";
 import {
   app_convex,
   app_convex_api,
+  pages_yjs_doc_is_diff_update_empty,
   pages_u8_to_array_buffer,
   type app_convex_FunctionReturnType,
   type app_convex_Id,
@@ -70,6 +71,7 @@ class PagesConvexYjsStream {
   private pendingOutgoingUpdates: Uint8Array[] = [];
   private outgoingUpdatesDebounceTimer: ReturnType<typeof setTimeout> | null =
     null;
+  private outgoingUpdateInFlight = false;
 
   private incrementalUpdatesFirstValueReceived = Object.assign(
     Promise.withResolvers(),
@@ -149,44 +151,102 @@ class PagesConvexYjsStream {
     this.state.appliedSeq = appliedSeq;
   }
 
-  private flushUpdates() {
-    if (this.disposed) return;
-    if (this.pendingOutgoingUpdates.length === 0) return;
-
-    const merged = mergeUpdates(this.pendingOutgoingUpdates);
-    this.pendingOutgoingUpdates = [];
-
-    if (merged.byteLength === 0) return;
-
-    this.onOutgoingUpdateSent();
-
-    app_convex
-      .mutation(app_convex_api.ai_docs_temp.yjs_push_update, {
-        membershipId: this.args.membershipId,
-        pageId: this.args.pageId,
-        update: pages_u8_to_array_buffer(merged),
-        sessionId: this.args.presenceStore.localSessionId,
-      })
-      .then((result) => {
-        if (result._nay) {
-          console.warn("[ConvexYjsSync] submit_update failed", result._nay);
-        }
-      })
-      .catch((err) => {
-        console.warn("[ConvexYjsSync] submit_update errored", err);
-      });
-  }
-
   enqueueUpdate(update: Uint8Array) {
     if (this.disposed) return;
+    if (pages_yjs_doc_is_diff_update_empty(update)) return;
+
+    // Keep one FIFO queue: the in-flight batch stays at index 0, and any edits
+    // made while it retries append behind it.
     this.pendingOutgoingUpdates.push(update);
 
-    if (!this.outgoingUpdatesDebounceTimer) {
-      this.outgoingUpdatesDebounceTimer = setTimeout(() => {
-        this.outgoingUpdatesDebounceTimer = null;
-        this.flushUpdates();
-      }, 500);
+    // Let the active pump own retries and follow-up batches. Enqueueing during
+    // an in-flight send should only append to the queue.
+    if (this.outgoingUpdateInFlight) return;
+
+    const flushUpdates = () => {
+      this.outgoingUpdatesDebounceTimer = null;
+      this.outgoingUpdateInFlight = true;
+
+      void Promise.try(async () => {
+        while (!this.disposed && this.pendingOutgoingUpdates.length > 0) {
+          // Seal the current idle debounce window into one batch. New edits that
+          // arrive after this point wait behind the sealed head batch.
+          const merged = mergeUpdates(this.pendingOutgoingUpdates);
+          this.pendingOutgoingUpdates = pages_yjs_doc_is_diff_update_empty(
+            merged
+          )
+            ? []
+            : [merged];
+
+          const outgoingUpdate = this.pendingOutgoingUpdates[0];
+          if (!outgoingUpdate) continue;
+
+          // Keep the sent batch at the head of the queue until Convex accepts it.
+          // Notify sync status once for this batch; retries must not create extra
+          // pending ack counts because Convex will only ack the accepted write.
+          this.onOutgoingUpdateSent();
+
+          // Retry this same sealed Yjs batch until it persists. Later Yjs updates
+          // may depend on earlier structs, so newer edits must not overtake it.
+          while (!this.disposed) {
+            try {
+              const result = await app_convex.mutation(
+                app_convex_api.ai_docs_temp.yjs_push_update,
+                {
+                  membershipId: this.args.membershipId,
+                  pageId: this.args.pageId,
+                  update: pages_u8_to_array_buffer(outgoingUpdate),
+                  sessionId: this.args.presenceStore.localSessionId,
+                }
+              );
+
+              if (result._nay) {
+                console.warn(
+                  "[PagesConvexYjsStream] yjs_push_update failed",
+                  result._nay
+                );
+                if (result._nay.message === "Rate limit exceeded") {
+                  await new Promise((resolve) => setTimeout(resolve, 5000));
+                  continue;
+                }
+                return;
+              }
+
+              this.pendingOutgoingUpdates.shift();
+              break;
+            } catch (err) {
+              console.warn(
+                "[PagesConvexYjsStream] yjs_push_update errored",
+                err
+              );
+              await new Promise((resolve) => setTimeout(resolve, 5000));
+              continue;
+            }
+          }
+
+          if (this.pendingOutgoingUpdates.length > 0) {
+            // Preserve the normal debounce cadence before sealing edits that
+            // accumulated while the previous batch was in flight.
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+        }
+      })
+        .catch((err: unknown) => {
+          console.warn(
+            "[PagesConvexYjsStream] outgoing_updates_loop errored",
+            err
+          );
+        })
+        .finally(() => {
+          this.outgoingUpdateInFlight = false;
+        });
+    };
+
+    if (this.outgoingUpdatesDebounceTimer) {
+      clearTimeout(this.outgoingUpdatesDebounceTimer);
     }
+    // Reset the timer while idle so this stays a real debounce, not a throttle.
+    this.outgoingUpdatesDebounceTimer = setTimeout(flushUpdates, 500);
   }
 
   async sync() {
@@ -202,7 +262,7 @@ class PagesConvexYjsStream {
         iteration++;
         if (iteration > 10) {
           console.error(
-            "PagesConvexYjsStream.sync: yjs sync failed after 10 retries",
+            "[PagesConvexYjsStream.sync] yjs sync failed after 10 retries",
             {
               membershipId: this.args.membershipId,
               pageId: this.args.pageId,
@@ -228,7 +288,7 @@ class PagesConvexYjsStream {
           ]);
         } catch (err) {
           console.warn(
-            "PagesConvexYjsStream.sync: snapshot query failed, retrying",
+            "[PagesConvexYjsStream.sync] snapshot query failed, retrying",
             err
           );
           // Backoff a bit before retrying to avoid hot-looping on transient errors.
@@ -237,7 +297,7 @@ class PagesConvexYjsStream {
         }
 
         if (!result) {
-          console.error("PagesConvexYjsStream.sync: fetch_doc returned null");
+          console.error("[PagesConvexYjsStream.sync] fetch_doc returned null");
           break;
         }
 
@@ -309,6 +369,7 @@ class PagesConvexYjsStream {
       clearTimeout(this.outgoingUpdatesDebounceTimer);
       this.outgoingUpdatesDebounceTimer = null;
     }
+    this.outgoingUpdateInFlight = false;
     this.pendingOutgoingUpdates = [];
     this.unsubscribe();
   }

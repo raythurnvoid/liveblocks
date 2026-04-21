@@ -5,7 +5,8 @@
 		"lib": [
 			"dom",
 			"dom.iterable",
-			"es2024"
+			"es2024",
+			"esnext.promise"
 		]
 	},
 	"include": [

@@ -16,6 +16,7 @@ export {
 } from "../../../../src/lib/app-convex-client.ts";
 
 export {
+  pages_yjs_doc_is_diff_update_empty,
   pages_u8_to_array_buffer,
   pages_u8_equals,
 } from "../../../../shared/pages.ts";
