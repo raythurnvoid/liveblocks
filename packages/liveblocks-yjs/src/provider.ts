@@ -132,7 +132,7 @@ class PagesConvexYjsStream {
       // are treated as remote changes and applied to the document.
       const isLocalEdit =
         updatePacket.origin.type === "USER_EDIT" &&
-        updatePacket.origin.session_id ===
+        updatePacket.origin.sessionId ===
           this.args.presenceStore.localSessionId;
 
       if (isLocalEdit) {
@@ -303,7 +303,7 @@ class PagesConvexYjsStream {
 
         if (this.disposed) break;
 
-        const snapshotUpdate = new Uint8Array(result.snapshot_update);
+        const snapshotUpdate = new Uint8Array(result.snapshotUpdate);
 
         let lastSequence = result.sequence;
         let updatesAfterSnapshot;
@@ -329,7 +329,7 @@ class PagesConvexYjsStream {
             // are treated as remote changes and applied to the document.
             const isLocalEdit =
               updateData.origin.type === "USER_EDIT" &&
-              updateData.origin.session_id ===
+              updateData.origin.sessionId ===
                 this.args.presenceStore.localSessionId;
 
             lastSequence = updateData.sequence;
