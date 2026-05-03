@@ -2,7 +2,7 @@ import { Signal as Signal, type YjsSyncStatus } from "@liveblocks/core";
 import { Base64 } from "js-base64";
 import { Observable } from "lib0/observable";
 import * as Y from "yjs";
-import { pages_u8_equals } from "../app_lb_bridge.ts";
+import { files_u8_equals } from "../app_lb_bridge.ts";
 
 export default class yDocHandler extends Observable<unknown> {
   private unsubscribers: Array<() => void> = [];
@@ -105,7 +105,7 @@ export default class yDocHandler extends Observable<unknown> {
         // metadata informations like GC or deletions and therefore checking its size cannot
         // be reliably used to determine if the the local doc is different from remote
         // to then trigger the update that will push the update blob to the server
-        if (!pages_u8_equals(serverVector, localVector)) {
+        if (!files_u8_equals(serverVector, localVector)) {
           const diffUpdate = this.computeDiffUpdateFromCurrentState(
             args.currentStateUpdate
           );

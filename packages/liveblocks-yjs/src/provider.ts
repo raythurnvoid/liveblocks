@@ -12,57 +12,57 @@ import yDocHandler from "./doc";
 import {
   app_convex,
   app_convex_api,
-  pages_yjs_doc_is_diff_update_empty,
-  pages_u8_to_array_buffer,
+  files_yjs_doc_is_diff_update_empty,
+  files_u8_to_array_buffer,
   type app_convex_FunctionReturnType,
   type app_convex_Id,
   type app_convex_Watch,
-  type pages_PresenceStore,
+  type files_PresenceStore,
 } from "../app_lb_bridge.ts";
 
 type StreamStateKey = "__root" | (string & {});
 
-function pages_convex_stream_key(guid: string | undefined): StreamStateKey {
+function files_convex_stream_key(guid: string | undefined): StreamStateKey {
   return guid ?? "__root";
 }
 
-type PagesConvexIncrementalUpdates = NonNullable<
+type FilesConvexIncrementalUpdates = NonNullable<
   app_convex_FunctionReturnType<
-    typeof app_convex_api.ai_docs_temp.yjs_get_incremental_updates
+    typeof app_convex_api.files_nodes.yjs_get_incremental_updates
   >
 >;
 
-type PagesConvexYjsStream_Args = {
-  pageId: app_convex_Id<"pages">;
+type FilesConvexYjsStream_Args = {
+  nodeId: app_convex_Id<"files_nodes">;
   membershipId: app_convex_Id<"workspaces_projects_users">;
-  presenceStore: pages_PresenceStore;
+  presenceStore: files_PresenceStore;
   onGoodUpdatePacket: (
-    packet: PagesConvexIncrementalUpdates["updates"][number]
+    packet: FilesConvexIncrementalUpdates["updates"][number]
   ) => void;
   onAckUpdatePacket: (
-    packet: PagesConvexIncrementalUpdates["updates"][number]
+    packet: FilesConvexIncrementalUpdates["updates"][number]
   ) => void;
   onOutgoingUpdateSent: () => void;
   onSync: (currentStateUpdate: Uint8Array) => void;
 };
 
-class PagesConvexYjsStream {
-  args: PagesConvexYjsStream_Args;
+class FilesConvexYjsStream {
+  args: FilesConvexYjsStream_Args;
   state: {
     syncing: boolean;
     ready: boolean;
     appliedSeq: number;
-    incrementalUpdates: PagesConvexIncrementalUpdates | null;
+    incrementalUpdates: FilesConvexIncrementalUpdates | null;
   };
 
-  private onRemoteUpdatePacket: PagesConvexYjsStream_Args["onGoodUpdatePacket"];
-  private onAckUpdatePacket: PagesConvexYjsStream_Args["onAckUpdatePacket"];
-  private onOutgoingUpdateSent: PagesConvexYjsStream_Args["onOutgoingUpdateSent"];
-  private onSync: PagesConvexYjsStream_Args["onSync"];
+  private onRemoteUpdatePacket: FilesConvexYjsStream_Args["onGoodUpdatePacket"];
+  private onAckUpdatePacket: FilesConvexYjsStream_Args["onAckUpdatePacket"];
+  private onOutgoingUpdateSent: FilesConvexYjsStream_Args["onOutgoingUpdateSent"];
+  private onSync: FilesConvexYjsStream_Args["onSync"];
 
   private watcher: app_convex_Watch<
     app_convex_FunctionReturnType<
-      typeof app_convex_api.ai_docs_temp.yjs_get_incremental_updates
+      typeof app_convex_api.files_nodes.yjs_get_incremental_updates
     >
   >;
   private unsubscribe: () => void;
@@ -78,7 +78,7 @@ class PagesConvexYjsStream {
     { initialized: false }
   );
 
-  constructor(args: PagesConvexYjsStream_Args) {
+  constructor(args: FilesConvexYjsStream_Args) {
     this.args = args;
     this.state = {
       syncing: false,
@@ -93,10 +93,10 @@ class PagesConvexYjsStream {
     this.onSync = args.onSync;
 
     this.watcher = app_convex.watchQuery(
-      app_convex_api.ai_docs_temp.yjs_get_incremental_updates,
+      app_convex_api.files_nodes.yjs_get_incremental_updates,
       {
         membershipId: args.membershipId,
-        pageId: args.pageId,
+        nodeId: args.nodeId,
       }
     );
 
@@ -114,7 +114,7 @@ class PagesConvexYjsStream {
   }
 
   private handleIncrementalUpdates(
-    incrementalUpdates: PagesConvexIncrementalUpdates
+    incrementalUpdates: FilesConvexIncrementalUpdates
   ) {
     if (this.disposed) return;
     if (!this.state.ready || this.state.syncing) return;
@@ -153,7 +153,7 @@ class PagesConvexYjsStream {
 
   enqueueUpdate(update: Uint8Array) {
     if (this.disposed) return;
-    if (pages_yjs_doc_is_diff_update_empty(update)) return;
+    if (files_yjs_doc_is_diff_update_empty(update)) return;
 
     // Keep one FIFO queue: the in-flight batch stays at index 0, and any edits
     // made while it retries append behind it.
@@ -172,7 +172,7 @@ class PagesConvexYjsStream {
           // Seal the current idle debounce window into one batch. New edits that
           // arrive after this point wait behind the sealed head batch.
           const merged = mergeUpdates(this.pendingOutgoingUpdates);
-          this.pendingOutgoingUpdates = pages_yjs_doc_is_diff_update_empty(
+          this.pendingOutgoingUpdates = files_yjs_doc_is_diff_update_empty(
             merged
           )
             ? []
@@ -191,18 +191,18 @@ class PagesConvexYjsStream {
           while (!this.disposed) {
             try {
               const result = await app_convex.mutation(
-                app_convex_api.ai_docs_temp.yjs_push_update,
+                app_convex_api.files_nodes.yjs_push_update,
                 {
                   membershipId: this.args.membershipId,
-                  pageId: this.args.pageId,
-                  update: pages_u8_to_array_buffer(outgoingUpdate),
+                  nodeId: this.args.nodeId,
+                  update: files_u8_to_array_buffer(outgoingUpdate),
                   sessionId: this.args.presenceStore.localSessionId,
                 }
               );
 
               if (result._nay) {
                 console.warn(
-                  "[PagesConvexYjsStream] yjs_push_update failed",
+                  "[FilesConvexYjsStream] yjs_push_update failed",
                   result._nay
                 );
                 if (result._nay.message === "Rate limit exceeded") {
@@ -216,7 +216,7 @@ class PagesConvexYjsStream {
               break;
             } catch (err) {
               console.warn(
-                "[PagesConvexYjsStream] yjs_push_update errored",
+                "[FilesConvexYjsStream] yjs_push_update errored",
                 err
               );
               await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -233,7 +233,7 @@ class PagesConvexYjsStream {
       })
         .catch((err: unknown) => {
           console.warn(
-            "[PagesConvexYjsStream] outgoing_updates_loop errored",
+            "[FilesConvexYjsStream] outgoing_updates_loop errored",
             err
           );
         })
@@ -262,33 +262,33 @@ class PagesConvexYjsStream {
         iteration++;
         if (iteration > 10) {
           console.error(
-            "[PagesConvexYjsStream.sync] yjs sync failed after 10 retries",
+            "[FilesConvexYjsStream.sync] yjs sync failed after 10 retries",
             {
               membershipId: this.args.membershipId,
-              pageId: this.args.pageId,
+              nodeId: this.args.nodeId,
             }
           );
           break;
         }
 
         let result: app_convex_FunctionReturnType<
-          typeof app_convex_api.ai_docs_temp.yjs_get_doc_last_snapshot
+          typeof app_convex_api.files_nodes.yjs_get_doc_last_snapshot
         > | null = null;
 
         try {
           [result] = await Promise.all([
             app_convex.query(
-              app_convex_api.ai_docs_temp.yjs_get_doc_last_snapshot,
+              app_convex_api.files_nodes.yjs_get_doc_last_snapshot,
               {
                 membershipId: this.args.membershipId,
-                pageId: this.args.pageId,
+                nodeId: this.args.nodeId,
               }
             ),
             this.incrementalUpdatesFirstValueReceived.promise,
           ]);
         } catch (err) {
           console.warn(
-            "[PagesConvexYjsStream.sync] snapshot query failed, retrying",
+            "[FilesConvexYjsStream.sync] snapshot query failed, retrying",
             err
           );
           // Backoff a bit before retrying to avoid hot-looping on transient errors.
@@ -297,7 +297,7 @@ class PagesConvexYjsStream {
         }
 
         if (!result) {
-          console.error("[PagesConvexYjsStream.sync] fetch_doc returned null");
+          console.error("[FilesConvexYjsStream.sync] fetch_doc returned null");
           break;
         }
 
@@ -376,9 +376,9 @@ class PagesConvexYjsStream {
 }
 
 export type LiveblocksYjsProvider_Args = {
-  pageId: app_convex_Id<"pages">;
+  nodeId: app_convex_Id<"files_nodes">;
   enablePermanentUserData?: boolean;
-  presenceStore: pages_PresenceStore;
+  presenceStore: files_PresenceStore;
   membershipId: app_convex_Id<"workspaces_projects_users">;
 };
 
@@ -403,7 +403,7 @@ export class LiveblocksYjsProvider
 
   private readonly convexStreams = new Map<
     StreamStateKey,
-    PagesConvexYjsStream
+    FilesConvexYjsStream
   >();
 
   constructor(args: LiveblocksYjsProvider_Args) {
@@ -482,10 +482,10 @@ export class LiveblocksYjsProvider
 
   private ensureConvexStream(args: {
     yDocHandler: yDocHandler;
-    presenceStore: pages_PresenceStore;
+    presenceStore: files_PresenceStore;
     guid?: string;
   }) {
-    const key = pages_convex_stream_key(args.guid);
+    const key = files_convex_stream_key(args.guid);
     let stream = this.convexStreams.get(key);
     if (stream) {
       return stream;
@@ -494,8 +494,8 @@ export class LiveblocksYjsProvider
     // TODO: add permissions to room user state
     const canWrite = true;
 
-    stream = new PagesConvexYjsStream({
-      pageId: this.args.pageId,
+    stream = new FilesConvexYjsStream({
+      nodeId: this.args.nodeId,
       membershipId: this.args.membershipId,
       presenceStore: args.presenceStore,
       onGoodUpdatePacket: (updateItem) => {

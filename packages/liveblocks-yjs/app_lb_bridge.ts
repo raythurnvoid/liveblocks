@@ -1,9 +1,9 @@
 // Must use relative paths to avoid issues with multiple tsconfigs.
 
 export type {
-  pages_PresenceStore,
-  pages_PresenceStore_Event,
-} from "../../../../src/lib/pages.ts";
+  files_PresenceStore,
+  files_PresenceStore_Event,
+} from "../../../../src/lib/files.ts";
 
 export {
   app_convex,
@@ -16,7 +16,7 @@ export {
 } from "../../../../src/lib/app-convex-client.ts";
 
 export {
-  pages_yjs_doc_is_diff_update_empty,
-  pages_u8_to_array_buffer,
-  pages_u8_equals,
-} from "../../../../shared/pages.ts";
+  files_yjs_doc_is_diff_update_empty,
+  files_u8_to_array_buffer,
+  files_u8_equals,
+} from "../../../../shared/files.ts";

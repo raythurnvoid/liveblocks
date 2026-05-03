@@ -5,8 +5,8 @@
 import { Observable } from "lib0/observable";
 import type * as Y from "yjs";
 import type {
-  pages_PresenceStore,
-  pages_PresenceStore_Event,
+  files_PresenceStore,
+  files_PresenceStore_Event,
 } from "../app_lb_bridge.ts";
 
 type MetaClientState = {
@@ -15,7 +15,7 @@ type MetaClientState = {
 };
 
 type YjsData = NonNullable<
-  ReturnType<pages_PresenceStore["sessionsData"]["get"]>
+  ReturnType<files_PresenceStore["sessionsData"]["get"]>
 >["yjs_data"];
 
 class BatchedEventsHandler<Events extends Event> {
@@ -51,7 +51,7 @@ class BatchedEventsHandler<Events extends Event> {
  * Awareness only tracks OTHER sessions, not the local session.
  */
 export class Awareness extends Observable<unknown> {
-  private presenceStore: pages_PresenceStore;
+  private presenceStore: files_PresenceStore;
   public doc: Y.Doc;
   public states: Map<number, unknown> = new Map();
   /**
@@ -70,7 +70,7 @@ export class Awareness extends Observable<unknown> {
 
   private abortController = new AbortController();
 
-  constructor(doc: Y.Doc, presenceStore: pages_PresenceStore) {
+  constructor(doc: Y.Doc, presenceStore: files_PresenceStore) {
     super();
     this.doc = doc;
     this.presenceStore = presenceStore;
@@ -112,7 +112,7 @@ export class Awareness extends Observable<unknown> {
     }
 
     const batchedEventHandler = new BatchedEventsHandler(
-      (events: Array<pages_PresenceStore_Event["__union"]>) => {
+      (events: Array<files_PresenceStore_Event["__union"]>) => {
         const added: number[] = [];
         const updated: number[] = [];
         const removed: number[] = [];
@@ -180,7 +180,7 @@ export class Awareness extends Observable<unknown> {
     );
 
     const handlePresenceStoreEvent = (
-      event: pages_PresenceStore_Event["__union"]
+      event: files_PresenceStore_Event["__union"]
     ): void => {
       // Filter out local session
       if (

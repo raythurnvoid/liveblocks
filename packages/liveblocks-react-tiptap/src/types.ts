@@ -13,7 +13,7 @@ import type { DecorationSet } from "@tiptap/pm/view";
 import type { ChainedCommands, SingleCommands } from "@tiptap/react";
 import type { ProsemirrorBinding } from "@tiptap/y-tiptap";
 import type { Doc, PermanentUserData, Snapshot } from "yjs";
-import type { pages_PresenceStore } from "../app_lb_bridge.ts";
+import type { files_PresenceStore } from "../app_lb_bridge.ts";
 
 export const LIVEBLOCKS_MENTION_KEY = new PluginKey("lb-plugin-mention");
 export const LIVEBLOCKS_MENTION_PASTE_KEY = new PluginKey(
@@ -109,7 +109,7 @@ export type LiveblocksExtensionOptions = {
   /**
    * Convex presence store for awareness. Required for Convex-backed presence.
    */
-  presenceStore?: pages_PresenceStore;
+  presenceStore?: files_PresenceStore;
 };
 
 export type LiveblocksExtensionStorage = {
