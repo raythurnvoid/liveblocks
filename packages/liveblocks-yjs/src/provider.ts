@@ -272,13 +272,13 @@ class FilesConvexYjsStream {
         }
 
         let result: app_convex_FunctionReturnType<
-          typeof app_convex_api.files_nodes.yjs_get_doc_last_snapshot
+          typeof app_convex_api.files_nodes.yjs_prepare_doc_last_snapshot
         > | null = null;
 
         try {
           [result] = await Promise.all([
-            app_convex.query(
-              app_convex_api.files_nodes.yjs_get_doc_last_snapshot,
+            app_convex.action(
+              app_convex_api.files_nodes.yjs_prepare_doc_last_snapshot,
               {
                 membershipId: this.args.membershipId,
                 nodeId: this.args.nodeId,
@@ -303,9 +303,34 @@ class FilesConvexYjsStream {
 
         if (this.disposed) break;
 
-        const snapshotUpdate = new Uint8Array(result.snapshotUpdate);
+        let resultSnapshotUpdate: ArrayBuffer;
+        try {
+          if (!result.snapshotUrl) {
+            throw new Error("Yjs snapshot URL is not set");
+          }
 
-        let lastSequence = result.sequence;
+          resultSnapshotUpdate = await fetch(result.snapshotUrl).then((response) => {
+            if (!response.ok) {
+              throw new Error("Failed to fetch Yjs snapshot from R2");
+            }
+
+            return response.arrayBuffer();
+          });
+        } catch (err) {
+          console.warn(
+            "[FilesConvexYjsStream.sync] snapshot fetch failed, retrying",
+            err
+          );
+          // Backoff a bit before retrying to avoid hot-looping on transient R2 errors.
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          continue;
+        }
+
+        if (this.disposed) break;
+
+        const snapshotUpdate = new Uint8Array(resultSnapshotUpdate);
+
+        let lastSequence = result.snapshot.sequence;
         let updatesAfterSnapshot;
 
         if (this.state.incrementalUpdates?.updates.length) {

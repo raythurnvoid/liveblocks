@@ -7,7 +7,7 @@ import type {
   ThreadData,
 } from "@liveblocks/core";
 import type { LiveblocksYjsProvider } from "@liveblocks/yjs";
-import type { Content, Range } from "@tiptap/core";
+import type { Range } from "@tiptap/core";
 import { PluginKey } from "@tiptap/pm/state";
 import type { DecorationSet } from "@tiptap/pm/view";
 import type { ChainedCommands, SingleCommands } from "@tiptap/react";
@@ -90,7 +90,6 @@ export type LiveblocksExtensionOptions = {
   ai?: boolean | AiConfiguration;
   offlineSupport_experimental?: boolean;
   threads_experimental?: ThreadData[];
-  initialContent?: Content;
   enablePermanentUserData?: boolean;
 
   /**

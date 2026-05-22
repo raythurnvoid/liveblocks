@@ -19,4 +19,5 @@ export {
   files_yjs_doc_is_diff_update_empty,
   files_u8_to_array_buffer,
   files_u8_equals,
+  files_yjs_create_empty_state_update,
 } from "../../../../shared/files.ts";

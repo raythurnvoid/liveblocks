@@ -180,6 +180,8 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
   // const isEditorReady = useIsEditorReady();
   // const yjsProvider = useYjsProvider();
 
+  // Keep historical Liveblocks initial-content bootstrapping commented out
+  // because Convex now owns initial document content on the server.
   // If the user provided initialContent, wait for ready and then set it
   // useEffect(() => {
   //   if (
@@ -252,49 +254,53 @@ export const useLiveblocksExtension = (opts?: LiveblocksExtensionOptions) => {
         );
       }
 
-      if (options.initialContent) {
-        const provider = options.yjsProvider;
-        if (!provider) {
-          throw new Error("yjsProvider is required for useLiveblocksExtension");
-        }
-        const ydoc = provider.getYDoc();
-        const field = options.field ?? DEFAULT_OPTIONS.field;
+      // Keep initial Yjs content server-owned. Convex seeds new documents before
+      // the provider hydrates, so the editor must not write bootstrap content.
+      // Leave the old client bootstrap path commented so this decision stays
+      // explicit in the patched Liveblocks extension.
+      // if (options.initialContent) {
+      //   const provider = options.yjsProvider;
+      //   if (!provider) {
+      //     throw new Error("yjsProvider is required for useLiveblocksExtension");
+      //   }
+      //   const ydoc = provider.getYDoc();
+      //   const field = options.field ?? DEFAULT_OPTIONS.field;
 
-        const tryApplyInitialContent = () => {
-          const status = provider.getStatus();
-          const isReady =
-            status === "synchronizing" || status === "synchronized";
-          if (!isReady) return false;
+      //   const tryApplyInitialContent = () => {
+      //     const status = provider.getStatus();
+      //     const isReady =
+      //       status === "synchronizing" || status === "synchronized";
+      //     if (!isReady) return false;
 
-          const config = ydoc.getMap("liveblocks_config");
-          const hasContentSet = config.get("hasContentSet");
-          if (hasContentSet) return true;
+      //     const config = ydoc.getMap("liveblocks_config");
+      //     const hasContentSet = config.get("hasContentSet");
+      //     if (hasContentSet) return true;
 
-          config.set("hasContentSet", true);
+      //     config.set("hasContentSet", true);
 
-          // Avoid overwriting documents that already have content but
-          // the flag was not set.
-          const fragment = ydoc.getXmlFragment(field);
-          if (fragment.length > 0) {
-            return true;
-          }
+      //     // Avoid overwriting documents that already have content but
+      //     // the flag was not set.
+      //     const fragment = ydoc.getXmlFragment(field);
+      //     if (fragment.length > 0) {
+      //       return true;
+      //     }
 
-          this.editor.commands.setContent(options.initialContent!);
-          return true;
-        };
+      //     this.editor.commands.setContent(options.initialContent!);
+      //     return true;
+      //   };
 
-        if (!tryApplyInitialContent()) {
-          const onStatus = () => {
-            if (tryApplyInitialContent()) {
-              provider.off("status", onStatus);
-            }
-          };
-          provider.on("status", onStatus);
-          this.storage.unsubs.push(() => {
-            provider.off("status", onStatus);
-          });
-        }
-      }
+      //   if (!tryApplyInitialContent()) {
+      //     const onStatus = () => {
+      //       if (tryApplyInitialContent()) {
+      //         provider.off("status", onStatus);
+      //       }
+      //     };
+      //     provider.on("status", onStatus);
+      //     this.storage.unsubs.push(() => {
+      //       provider.off("status", onStatus);
+      //     });
+      //   }
+      // }
       // TODO: to be refactored for Convex BE
       // if (
       //   options.mentions &&
