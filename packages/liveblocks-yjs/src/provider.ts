@@ -34,7 +34,7 @@ type FilesConvexIncrementalUpdates = NonNullable<
 
 type FilesConvexYjsStream_Args = {
   nodeId: app_convex_Id<"files_nodes">;
-  membershipId: app_convex_Id<"workspaces_projects_users">;
+  membershipId: app_convex_Id<"organizations_workspaces_users">;
   presenceStore: files_PresenceStore;
   onGoodUpdatePacket: (
     packet: FilesConvexIncrementalUpdates["updates"][number]
@@ -404,7 +404,7 @@ export type LiveblocksYjsProvider_Args = {
   nodeId: app_convex_Id<"files_nodes">;
   enablePermanentUserData?: boolean;
   presenceStore: files_PresenceStore;
-  membershipId: app_convex_Id<"workspaces_projects_users">;
+  membershipId: app_convex_Id<"organizations_workspaces_users">;
 };
 
 export class LiveblocksYjsProvider
